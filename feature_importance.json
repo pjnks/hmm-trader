@@ -1,0 +1,10 @@
+{
+  "log_return": 0.0001,
+  "price_range": 0.0002,
+  "volume_change": 0.3214,
+  "realized_vol_ratio": 0.433,
+  "return_autocorr": 0.0118,
+  "vol_price_diverge": 0.295,
+  "candle_body_ratio": 0.029,
+  "bb_width": 0.002
+}

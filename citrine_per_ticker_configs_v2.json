@@ -1,0 +1,688 @@
+{
+  "CTAS": {
+    "n_states": 4,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.4632
+  },
+  "MRVL": {
+    "n_states": 6,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.26735
+  },
+  "AEP": {
+    "n_states": 6,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 8,
+    "wf_sharpe": 0.2179
+  },
+  "DDOG": {
+    "n_states": 5,
+    "feature_set": "base",
+    "cov_type": "full",
+    "confirmations": 8,
+    "wf_sharpe": 0.2201
+  },
+  "CRWD": {
+    "n_states": 6,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 6,
+    "wf_sharpe": 0.4221
+  },
+  "MPWR": {
+    "n_states": 6,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 6,
+    "wf_sharpe": 0.3616
+  },
+  "ALNY": {
+    "n_states": 5,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.6855
+  },
+  "TXN": {
+    "n_states": 4,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.633
+  },
+  "MNST": {
+    "n_states": 6,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 8,
+    "wf_sharpe": 0.2319
+  },
+  "MAR": {
+    "n_states": 4,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 0.6046
+  },
+  "ASML": {
+    "n_states": 4,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 0.1872
+  },
+  "PANW": {
+    "n_states": 5,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 1.4236
+  },
+  "INSM": {
+    "n_states": 4,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 8,
+    "wf_sharpe": 0.1839
+  },
+  "ROST": {
+    "n_states": 5,
+    "feature_set": "extended_v2",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 1.3213
+  },
+  "MSTR": {
+    "n_states": 6,
+    "feature_set": "base",
+    "cov_type": "full",
+    "confirmations": 6,
+    "wf_sharpe": 0.3386
+  },
+  "NVDA": {
+    "n_states": 6,
+    "feature_set": "extended_v2",
+    "cov_type": "full",
+    "confirmations": 8,
+    "wf_sharpe": 0.6376
+  },
+  "EXC": {
+    "n_states": 5,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 8,
+    "wf_sharpe": 0.2032
+  },
+  "AXON": {
+    "n_states": 6,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 0.836
+  },
+  "CHTR": {
+    "n_states": 5,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 0.3350375
+  },
+  "MSFT": {
+    "n_states": 5,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.0138
+  },
+  "QCOM": {
+    "n_states": 5,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 0.1458
+  },
+  "TSLA": {
+    "n_states": 4,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.8284
+  },
+  "ADI": {
+    "n_states": 6,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 8,
+    "wf_sharpe": 0.202
+  },
+  "TTWO": {
+    "n_states": 6,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": -0.0224
+  },
+  "PDD": {
+    "n_states": 6,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.0982
+  },
+  "MDLZ": {
+    "n_states": 4,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 6,
+    "wf_sharpe": 0.5913
+  },
+  "TEAM": {
+    "n_states": 5,
+    "feature_set": "base",
+    "cov_type": "full",
+    "confirmations": 7,
+    "wf_sharpe": 0.9655
+  },
+  "MU": {
+    "n_states": 5,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 7,
+    "wf_sharpe": 0.8504
+  },
+  "CEG": {
+    "n_states": 4,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 1.1217
+  },
+  "TMUS": {
+    "n_states": 6,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 0.6318
+  },
+  "GEHC": {
+    "n_states": 4,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 0.7735
+  },
+  "MCHP": {
+    "n_states": 6,
+    "feature_set": "base",
+    "cov_type": "full",
+    "confirmations": 7,
+    "wf_sharpe": 0.4542
+  },
+  "GOOGL": {
+    "n_states": 5,
+    "feature_set": "base",
+    "cov_type": "full",
+    "confirmations": 6,
+    "wf_sharpe": 0.6864
+  },
+  "STX": {
+    "n_states": 4,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 6,
+    "wf_sharpe": 1.1688
+  },
+  "SBUX": {
+    "n_states": 4,
+    "feature_set": "base",
+    "cov_type": "full",
+    "confirmations": 6,
+    "wf_sharpe": 0.3347761904761905
+  },
+  "KDP": {
+    "n_states": 5,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 7,
+    "wf_sharpe": 0.2403
+  },
+  "FER": {
+    "n_states": 5,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 7,
+    "wf_sharpe": 1.301
+  },
+  "COST": {
+    "n_states": 4,
+    "feature_set": "base",
+    "cov_type": "full",
+    "confirmations": 7,
+    "wf_sharpe": 0.2792
+  },
+  "SNPS": {
+    "n_states": 5,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.3912
+  },
+  "INTC": {
+    "n_states": 4,
+    "feature_set": "extended_v2",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 0.366
+  },
+  "AMAT": {
+    "n_states": 6,
+    "feature_set": "base",
+    "cov_type": "full",
+    "confirmations": 8,
+    "wf_sharpe": 0.6456
+  },
+  "CSX": {
+    "n_states": 6,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 8,
+    "wf_sharpe": 0.1025
+  },
+  "CTSH": {
+    "n_states": 4,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 8,
+    "wf_sharpe": 0.3836
+  },
+  "AMZN": {
+    "n_states": 6,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.3056
+  },
+  "PLTR": {
+    "n_states": 6,
+    "feature_set": "extended_v2",
+    "cov_type": "diag",
+    "confirmations": 8,
+    "wf_sharpe": 0.4404
+  },
+  "ADSK": {
+    "n_states": 6,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 6,
+    "wf_sharpe": 0.4428
+  },
+  "PCAR": {
+    "n_states": 4,
+    "feature_set": "base",
+    "cov_type": "full",
+    "confirmations": 6,
+    "wf_sharpe": 0.7126
+  },
+  "PAYX": {
+    "n_states": 6,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 7,
+    "wf_sharpe": 0.23042142857142858
+  },
+  "CPRT": {
+    "n_states": 6,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 7,
+    "wf_sharpe": 0.3293
+  },
+  "WDC": {
+    "n_states": 6,
+    "feature_set": "base",
+    "cov_type": "full",
+    "confirmations": 6,
+    "wf_sharpe": 0.8075
+  },
+  "BKR": {
+    "n_states": 5,
+    "feature_set": "base",
+    "cov_type": "full",
+    "confirmations": 7,
+    "wf_sharpe": 0.1602
+  },
+  "LRCX": {
+    "n_states": 6,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.3089
+  },
+  "FTNT": {
+    "n_states": 4,
+    "feature_set": "base",
+    "cov_type": "full",
+    "confirmations": 7,
+    "wf_sharpe": 0.0669
+  },
+  "APP": {
+    "n_states": 4,
+    "feature_set": "extended_v2",
+    "cov_type": "full",
+    "confirmations": 6,
+    "wf_sharpe": 1.3958
+  },
+  "CCEP": {
+    "n_states": 5,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 1.3651
+  },
+  "ROP": {
+    "n_states": 4,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 6,
+    "wf_sharpe": 0.4448
+  },
+  "HON": {
+    "n_states": 5,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.0158
+  },
+  "ABNB": {
+    "n_states": 5,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 0.1525
+  },
+  "WDAY": {
+    "n_states": 5,
+    "feature_set": "base",
+    "cov_type": "full",
+    "confirmations": 7,
+    "wf_sharpe": 0.3836
+  },
+  "WMT": {
+    "n_states": 4,
+    "feature_set": "extended_v2",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 1.5874
+  },
+  "FAST": {
+    "n_states": 6,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.5066
+  },
+  "CSCO": {
+    "n_states": 4,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 7,
+    "wf_sharpe": 0.5416
+  },
+  "DXCM": {
+    "n_states": 4,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 0.5225
+  },
+  "ADP": {
+    "n_states": 6,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 7,
+    "wf_sharpe": 0.23042142857142858
+  },
+  "NXPI": {
+    "n_states": 5,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.4838
+  },
+  "XEL": {
+    "n_states": 5,
+    "feature_set": "base",
+    "cov_type": "full",
+    "confirmations": 7,
+    "wf_sharpe": 0.2695
+  },
+  "TRI": {
+    "n_states": 6,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 7,
+    "wf_sharpe": 0.0706
+  },
+  "INTU": {
+    "n_states": 4,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 0.4448
+  },
+  "WBD": {
+    "n_states": 4,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 6,
+    "wf_sharpe": 0.9438
+  },
+  "NFLX": {
+    "n_states": 5,
+    "feature_set": "extended_v2",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.7775
+  },
+  "DASH": {
+    "n_states": 6,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 8,
+    "wf_sharpe": 0.5472
+  },
+  "CSGP": {
+    "n_states": 4,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 7,
+    "wf_sharpe": 0.2308
+  },
+  "ZS": {
+    "n_states": 4,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 7,
+    "wf_sharpe": 0.7258
+  },
+  "ORLY": {
+    "n_states": 5,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 0.46754999999999997
+  },
+  "AVGO": {
+    "n_states": 6,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 0.0995
+  },
+  "VRSK": {
+    "n_states": 4,
+    "feature_set": "base",
+    "cov_type": "full",
+    "confirmations": 8,
+    "wf_sharpe": 0.1919
+  },
+  "PYPL": {
+    "n_states": 4,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.4219
+  },
+  "AAPL": {
+    "n_states": 6,
+    "feature_set": "extended_v2",
+    "cov_type": "full",
+    "confirmations": 6,
+    "wf_sharpe": 0.4263
+  },
+  "SHOP": {
+    "n_states": 4,
+    "feature_set": "extended_v2",
+    "cov_type": "full",
+    "confirmations": 6,
+    "wf_sharpe": 1.3898
+  },
+  "AMGN": {
+    "n_states": 6,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 7,
+    "wf_sharpe": 0.0675
+  },
+  "ARM": {
+    "n_states": 6,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.26735
+  },
+  "VRTX": {
+    "n_states": 5,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.2636142857142857
+  },
+  "FANG": {
+    "n_states": 6,
+    "feature_set": "base",
+    "cov_type": "full",
+    "confirmations": 7,
+    "wf_sharpe": 0.1684
+  },
+  "ADBE": {
+    "n_states": 5,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 8,
+    "wf_sharpe": 0.0334
+  },
+  "ODFL": {
+    "n_states": 5,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.2102
+  },
+  "AMD": {
+    "n_states": 5,
+    "feature_set": "extended_v2",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.4329
+  },
+  "CMCSA": {
+    "n_states": 5,
+    "feature_set": "extended_v2",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.3984
+  },
+  "BKNG": {
+    "n_states": 4,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 1.1558
+  },
+  "REGN": {
+    "n_states": 5,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 0.737
+  },
+  "GILD": {
+    "n_states": 5,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.2636142857142857
+  },
+  "MELI": {
+    "n_states": 5,
+    "feature_set": "base",
+    "cov_type": "full",
+    "confirmations": 6,
+    "wf_sharpe": 1.1699
+  },
+  "CDNS": {
+    "n_states": 5,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 7,
+    "wf_sharpe": 0.3391
+  },
+  "LIN": {
+    "n_states": 4,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 0.5972
+  },
+  "PEP": {
+    "n_states": 4,
+    "feature_set": "base",
+    "cov_type": "full",
+    "confirmations": 6,
+    "wf_sharpe": 0.3347761904761905
+  },
+  "KHC": {
+    "n_states": 6,
+    "feature_set": "extended",
+    "cov_type": "full",
+    "confirmations": 8,
+    "wf_sharpe": 0.0701
+  },
+  "KLAC": {
+    "n_states": 4,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 8,
+    "wf_sharpe": 0.286
+  },
+  "ISRG": {
+    "n_states": 4,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 0.5225
+  },
+  "EA": {
+    "n_states": 6,
+    "feature_set": "base",
+    "cov_type": "full",
+    "confirmations": 6,
+    "wf_sharpe": 0.3906
+  }
+}

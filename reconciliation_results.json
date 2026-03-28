@@ -1,0 +1,52 @@
+[
+  {
+    "project": "AGATE",
+    "status": "DISCREPANCIES_FOUND",
+    "discrepancies": [
+      "CONFIDENCE DRIFT: live=0.958 vs backtest=0.823 (diff=0.135)"
+    ],
+    "live_signal": {
+      "regime": "CHOP",
+      "confidence": 0.958,
+      "signal": "HOLD",
+      "confirmations": 5,
+      "price": 89.82
+    },
+    "backtest_signal": {
+      "regime": "CHOP",
+      "confidence": 0.8228075271560131,
+      "signal": "HOLD",
+      "confirmations": 5,
+      "price": 89.82
+    }
+  },
+  {
+    "project": "BERYL",
+    "status": "DISCREPANCIES_FOUND",
+    "discrepancies": [
+      "REGIME MISMATCH: live=BULL vs backtest=BEAR",
+      "CONFIDENCE DRIFT: live=1.000 vs backtest=0.861"
+    ],
+    "live_signal": {
+      "regime": "BULL",
+      "confidence": 0.9999052801143915,
+      "signal": "HOLD",
+      "confirmations": 4,
+      "price": 391.79
+    },
+    "backtest_signal": {
+      "regime": "BEAR",
+      "confidence": 0.8605216609794818,
+      "confirmations": 4,
+      "price": 172.7
+    }
+  },
+  {
+    "project": "CITRINE",
+    "status": "OK",
+    "discrepancies": [],
+    "trade_count": 71,
+    "position_count": 13,
+    "duplicate_trades": 0
+  }
+]

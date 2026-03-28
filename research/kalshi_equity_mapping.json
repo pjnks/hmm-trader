@@ -1,0 +1,59 @@
+{
+  "_description": "Mapping of Kalshi prediction markets to NDX100 equity tickers for cross-system hedging",
+  "_usage": "DIAMOND anomaly scores on these markets can serve as leading indicators for CITRINE regime transitions",
+  "_version": "0.1.0 — initial manual mapping, expand as Kalshi adds markets",
+
+  "earnings": {
+    "NVDA": {"kalshi_pattern": "NVDA-*-EARNINGS", "direction": "bullish_if_beat", "sector": "Semiconductors"},
+    "AAPL": {"kalshi_pattern": "AAPL-*-EARNINGS", "direction": "bullish_if_beat", "sector": "Technology"},
+    "MSFT": {"kalshi_pattern": "MSFT-*-EARNINGS", "direction": "bullish_if_beat", "sector": "Technology"},
+    "AMZN": {"kalshi_pattern": "AMZN-*-EARNINGS", "direction": "bullish_if_beat", "sector": "Technology"},
+    "GOOGL": {"kalshi_pattern": "GOOG-*-EARNINGS", "direction": "bullish_if_beat", "sector": "Technology"},
+    "META": {"kalshi_pattern": "META-*-EARNINGS", "direction": "bullish_if_beat", "sector": "Technology"},
+    "TSLA": {"kalshi_pattern": "TSLA-*-EARNINGS", "direction": "bullish_if_beat", "sector": "Automotive"}
+  },
+
+  "macro_indicators": {
+    "_note": "These affect broad NDX100, not individual tickers",
+    "fed_rate": {
+      "kalshi_pattern": "FED-*-RATE",
+      "affected_sectors": ["Technology", "Growth", "Semiconductors"],
+      "direction": "bearish_if_hike",
+      "rationale": "Rate hikes compress growth equity valuations"
+    },
+    "cpi": {
+      "kalshi_pattern": "CPI-*",
+      "affected_sectors": ["All"],
+      "direction": "bearish_if_high",
+      "rationale": "High CPI → expected rate hikes → growth selloff"
+    },
+    "gdp": {
+      "kalshi_pattern": "GDP-*",
+      "affected_sectors": ["All"],
+      "direction": "bullish_if_strong",
+      "rationale": "Strong GDP supports earnings growth expectations"
+    },
+    "unemployment": {
+      "kalshi_pattern": "UNRATE-*",
+      "affected_sectors": ["Consumer", "Retail"],
+      "direction": "bearish_if_high",
+      "rationale": "Rising unemployment reduces consumer spending"
+    }
+  },
+
+  "sector_events": {
+    "chip_export": {
+      "kalshi_pattern": "CHIP-*-EXPORT",
+      "affected_tickers": ["NVDA", "AMD", "AVGO", "QCOM", "LRCX", "KLAC", "AMAT", "MCHP", "NXPI", "TXN", "ADI"],
+      "direction": "bearish_if_restricted",
+      "rationale": "Export restrictions reduce TAM for semiconductor companies"
+    }
+  },
+
+  "integration_plan": {
+    "phase_1": "Map Kalshi market tickers to equity tickers using this file",
+    "phase_2": "When DIAMOND detects anomaly on mapped market, inject signal into CITRINE as alt_data_boost modifier",
+    "phase_3": "Track correlation between DIAMOND anomaly timing and CITRINE regime transitions",
+    "phase_4": "If correlation > 0.3, use DIAMOND anomalies as leading prior for HMM transition matrix A"
+  }
+}

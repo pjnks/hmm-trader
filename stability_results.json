@@ -1,0 +1,280 @@
+{
+  "results": [
+    {
+      "config": "AGATE-SOL-ensemble",
+      "test": "sensitivity",
+      "variation": "baseline",
+      "sharpe": -2.6665,
+      "return_pct": -20.51,
+      "n_trades": 30
+    },
+    {
+      "config": "AGATE-SOL-ensemble",
+      "test": "sensitivity",
+      "variation": "confirmations=5",
+      "sharpe": -2.5185,
+      "return_pct": -20.66,
+      "n_trades": 40
+    },
+    {
+      "config": "AGATE-SOL-ensemble",
+      "test": "sensitivity",
+      "variation": "confirmations=7",
+      "sharpe": -2.221,
+      "return_pct": -13.219999999999999,
+      "n_trades": 17
+    },
+    {
+      "config": "AGATE-SOL-ensemble",
+      "test": "sensitivity",
+      "variation": "leverage=0.9",
+      "sharpe": -2.671,
+      "return_pct": -18.54,
+      "n_trades": 30
+    },
+    {
+      "config": "AGATE-SOL-ensemble",
+      "test": "sensitivity",
+      "variation": "leverage=1.1",
+      "sharpe": -2.6614999999999998,
+      "return_pct": -22.47,
+      "n_trades": 30
+    },
+    {
+      "config": "AGATE-SOL-ensemble",
+      "test": "sensitivity",
+      "variation": "cooldown_hours=36",
+      "sharpe": -2.0199999999999996,
+      "return_pct": -17.16,
+      "n_trades": 32
+    },
+    {
+      "config": "AGATE-SOL-ensemble",
+      "test": "sensitivity",
+      "variation": "cooldown_hours=60",
+      "sharpe": -2.8605,
+      "return_pct": -20.42,
+      "n_trades": 27
+    },
+    {
+      "config": "AGATE-SOL-ensemble",
+      "test": "window",
+      "variation": "train=5m,test=3m",
+      "sharpe": -1.0579999999999998,
+      "return_pct": -12.61,
+      "n_trades": 38
+    },
+    {
+      "config": "AGATE-SOL-ensemble",
+      "test": "window",
+      "variation": "train=6m,test=3m",
+      "sharpe": -2.6665,
+      "return_pct": -20.51,
+      "n_trades": 30
+    },
+    {
+      "config": "AGATE-SOL-ensemble",
+      "test": "window",
+      "variation": "train=7m,test=3m",
+      "sharpe": -5.0895,
+      "return_pct": -32.44,
+      "n_trades": 26
+    },
+    {
+      "config": "AGATE-SOL-ensemble",
+      "test": "seed",
+      "variation": "seed=42",
+      "sharpe": -2.6665,
+      "return_pct": -20.51,
+      "n_trades": 30
+    },
+    {
+      "config": "AGATE-SOL-ensemble",
+      "test": "seed",
+      "variation": "seed=123",
+      "sharpe": -2.6665,
+      "return_pct": -20.51,
+      "n_trades": 30
+    },
+    {
+      "config": "AGATE-SOL-ensemble",
+      "test": "seed",
+      "variation": "seed=456",
+      "sharpe": -2.6665,
+      "return_pct": -20.51,
+      "n_trades": 30
+    },
+    {
+      "config": "AGATE-SOL-extended_v2",
+      "test": "sensitivity",
+      "variation": "baseline",
+      "sharpe": -0.25649999999999995,
+      "return_pct": -3.1000000000000014,
+      "n_trades": 29
+    },
+    {
+      "config": "AGATE-SOL-extended_v2",
+      "test": "sensitivity",
+      "variation": "confirmations=5",
+      "sharpe": -2.8129999999999997,
+      "return_pct": -28.08,
+      "n_trades": 35
+    },
+    {
+      "config": "AGATE-SOL-extended_v2",
+      "test": "sensitivity",
+      "variation": "confirmations=7",
+      "sharpe": 2.1510000000000002,
+      "return_pct": 1.5800000000000018,
+      "n_trades": 13
+    },
+    {
+      "config": "AGATE-SOL-extended_v2",
+      "test": "sensitivity",
+      "variation": "leverage=0.9",
+      "sharpe": -0.2589999999999999,
+      "return_pct": -3.0199999999999996,
+      "n_trades": 29
+    },
+    {
+      "config": "AGATE-SOL-extended_v2",
+      "test": "sensitivity",
+      "variation": "leverage=1.1",
+      "sharpe": -0.254,
+      "return_pct": -3.120000000000001,
+      "n_trades": 29
+    },
+    {
+      "config": "AGATE-SOL-extended_v2",
+      "test": "sensitivity",
+      "variation": "cooldown_hours=36",
+      "sharpe": 0.9634999999999998,
+      "return_pct": 10.489999999999998,
+      "n_trades": 30
+    },
+    {
+      "config": "AGATE-SOL-extended_v2",
+      "test": "sensitivity",
+      "variation": "cooldown_hours=60",
+      "sharpe": -2.1425,
+      "return_pct": -21.04,
+      "n_trades": 27
+    },
+    {
+      "config": "AGATE-SOL-extended_v2",
+      "test": "window",
+      "variation": "train=5m,test=3m",
+      "sharpe": 0.5413333333333332,
+      "return_pct": -0.4499999999999993,
+      "n_trades": 32
+    },
+    {
+      "config": "AGATE-SOL-extended_v2",
+      "test": "window",
+      "variation": "train=6m,test=3m",
+      "sharpe": -0.25649999999999995,
+      "return_pct": -3.1000000000000014,
+      "n_trades": 29
+    },
+    {
+      "config": "AGATE-SOL-extended_v2",
+      "test": "window",
+      "variation": "train=7m,test=3m",
+      "sharpe": 0.24550000000000002,
+      "return_pct": 0.7299999999999998,
+      "n_trades": 24
+    },
+    {
+      "config": "AGATE-SOL-extended_v2",
+      "test": "seed",
+      "variation": "seed=42",
+      "sharpe": -0.25649999999999995,
+      "return_pct": -3.1000000000000014,
+      "n_trades": 29
+    },
+    {
+      "config": "AGATE-SOL-extended_v2",
+      "test": "seed",
+      "variation": "seed=123",
+      "sharpe": -0.25649999999999995,
+      "return_pct": -3.1000000000000014,
+      "n_trades": 29
+    },
+    {
+      "config": "AGATE-SOL-extended_v2",
+      "test": "seed",
+      "variation": "seed=456",
+      "sharpe": -0.25649999999999995,
+      "return_pct": -3.1000000000000014,
+      "n_trades": 29
+    }
+  ],
+  "analysis": {
+    "AGATE-SOL-ensemble|sensitivity": {
+      "config": "AGATE-SOL-ensemble",
+      "test": "sensitivity",
+      "mean_sharpe": -2.517,
+      "std_sharpe": 0.272,
+      "min_sharpe": -2.861,
+      "max_sharpe": -2.02,
+      "n_valid": 7,
+      "fragile": false,
+      "reason": ""
+    },
+    "AGATE-SOL-ensemble|window": {
+      "config": "AGATE-SOL-ensemble",
+      "test": "window",
+      "mean_sharpe": -2.938,
+      "std_sharpe": 1.657,
+      "min_sharpe": -5.09,
+      "max_sharpe": -1.058,
+      "n_valid": 3,
+      "fragile": true,
+      "reason": "Window CV = 0.56 (>0.50)"
+    },
+    "AGATE-SOL-ensemble|seed": {
+      "config": "AGATE-SOL-ensemble",
+      "test": "seed",
+      "mean_sharpe": -2.666,
+      "std_sharpe": 0.0,
+      "min_sharpe": -2.667,
+      "max_sharpe": -2.667,
+      "n_valid": 3,
+      "fragile": false,
+      "reason": ""
+    },
+    "AGATE-SOL-extended_v2|sensitivity": {
+      "config": "AGATE-SOL-extended_v2",
+      "test": "sensitivity",
+      "mean_sharpe": -0.373,
+      "std_sharpe": 1.571,
+      "min_sharpe": -2.813,
+      "max_sharpe": 2.151,
+      "n_valid": 7,
+      "fragile": false,
+      "reason": ""
+    },
+    "AGATE-SOL-extended_v2|window": {
+      "config": "AGATE-SOL-extended_v2",
+      "test": "window",
+      "mean_sharpe": 0.177,
+      "std_sharpe": 0.329,
+      "min_sharpe": -0.256,
+      "max_sharpe": 0.541,
+      "n_valid": 3,
+      "fragile": true,
+      "reason": "Window CV = 1.86 (>0.50)"
+    },
+    "AGATE-SOL-extended_v2|seed": {
+      "config": "AGATE-SOL-extended_v2",
+      "test": "seed",
+      "mean_sharpe": -0.256,
+      "std_sharpe": 0.0,
+      "min_sharpe": -0.256,
+      "max_sharpe": -0.256,
+      "n_valid": 3,
+      "fragile": false,
+      "reason": ""
+    }
+  }
+}

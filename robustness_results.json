@@ -1,0 +1,87 @@
+{
+  "run_date": "2026-03-13T22:59:18.200758",
+  "base_config": {
+    "ticker": "X:XRPUSD",
+    "timeframe": "2h",
+    "n_states": 6,
+    "feature_set": "full",
+    "confirmations": 7,
+    "leverage": 2.0,
+    "cooldown_hours": 48,
+    "covariance_type": "full",
+    "_use_ensemble": true
+  },
+  "sensitivity": {
+    "test": "sensitivity",
+    "passed": false,
+    "base_sharpe": -0.363,
+    "variants": [
+      {
+        "param": "confirmations",
+        "value": 6,
+        "base_value": 7,
+        "sharpe": -0.896,
+        "delta_sharpe": -0.533,
+        "return_pct": -14.71,
+        "passed": false
+      },
+      {
+        "param": "confirmations",
+        "value": 8,
+        "base_value": 7,
+        "sharpe": 2.474,
+        "delta_sharpe": 2.837,
+        "return_pct": 11.95,
+        "passed": true
+      },
+      {
+        "param": "leverage",
+        "value": 1.5,
+        "base_value": 2.0,
+        "sharpe": -0.373,
+        "delta_sharpe": -0.01,
+        "return_pct": -4.09,
+        "passed": false
+      },
+      {
+        "param": "leverage",
+        "value": 2.5,
+        "base_value": 2.0,
+        "sharpe": -0.353,
+        "delta_sharpe": 0.01,
+        "return_pct": -7.74,
+        "passed": false
+      },
+      {
+        "param": "cooldown_hours",
+        "value": 24,
+        "base_value": 48,
+        "sharpe": 0.866,
+        "delta_sharpe": 1.229,
+        "return_pct": 8.03,
+        "passed": true
+      },
+      {
+        "param": "cooldown_hours",
+        "value": 72,
+        "base_value": 48,
+        "sharpe": 1.333,
+        "delta_sharpe": 1.696,
+        "return_pct": 12.63,
+        "passed": true
+      },
+      {
+        "param": "covariance_type",
+        "value": "diag",
+        "base_value": "full",
+        "sharpe": -2.813,
+        "delta_sharpe": -2.45,
+        "return_pct": -33.97,
+        "passed": false
+      }
+    ]
+  },
+  "tests_passed": 0,
+  "tests_total": 1,
+  "overall_passed": false
+}
