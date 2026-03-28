@@ -34,6 +34,9 @@ data_cache/
 # Presentation files (not source code)
 *.pptx
 
+# Node
+node_modules/
+
 # Python
 __pycache__/
 *.pyc
