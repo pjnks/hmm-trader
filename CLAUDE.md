@@ -149,6 +149,7 @@ Why the gap?
 - **Live Dashboard** (`live_dashboard.py`) at `http://129.158.40.51:8060` — equity curve, kill-switch status, trade table, regime panels (BULL/BEAR/CHOP badges)
 - **CITRINE Dashboard** (`citrine_dashboard.py`) at `http://129.158.40.51:8070` — portfolio equity, allocation, position health, signal frequency, kill-switch
 - **DIAMOND Dashboard** (`diamond_dashboard.py`) at `http://129.158.40.51:8080` — anomaly feed, paper trading portfolio
+- **Consolidated Dashboard** (`consolidated_dashboard.py`) at `http://129.158.40.51:8090` — all projects combined view
 - **Daily Report** (`python daily_report.py`) — terminal report with maturity scores, project status (Mac-only)
 - **Check-In Dialogs** (`python daily_report.py --checkin`) — 5 macOS dialogs with live data, streak tracking (Mac-only)
 - All dashboards include HTTP `Cache-Control: no-store` headers to prevent stale browser caching
@@ -184,16 +185,17 @@ All 4 sub-projects run 24/7 on an Oracle Cloud Free Tier VM as systemd services.
 ssh -i ~/.ssh/hmm-trader.key ubuntu@129.158.40.51
 ```
 
-### 7 systemd Services
+### 8 systemd Services
 | Service | Command | RAM | Port |
 |---------|---------|-----|------|
 | `agate-trader` | `python live_trading.py --test` | ~110 MB | — |
-| `beryl-trader` | `python live_trading_beryl.py --test --tickers NVDA,TSLA,GOOGL,MSFT,AAPL` | ~183 MB | — |
+| `beryl-trader` | `python live_trading_beryl.py --test` | ~183 MB | — |
 | `citrine-trader` | `python live_trading_citrine.py --test --long-only --tickers ...` | ~28 MB | — |
 | `diamond-monitor` | `python diamond_monitor.py` | ~30 MB | — |
 | `live-dashboard` | `python live_dashboard.py --host 0.0.0.0 --port 8060` | ~19 MB | 8060 |
 | `citrine-dashboard` | `python citrine_dashboard.py` | ~48 MB | 8070 |
 | `diamond-dashboard` | `python diamond_dashboard.py` | ~83 MB | 8080 |
+| `consolidated-dashboard` | `python consolidated_dashboard.py` | ~93 MB | 8090 |
 
 All services: `Restart=always`, `RestartSec=30`, `WorkingDirectory=/home/ubuntu/HMM-Trader` (or `/home/ubuntu/kalshi-diamond` for DIAMOND).
 
@@ -237,13 +239,17 @@ Backward-compat symlinks preserve old paths:
 | `.env` (API keys) | `/home/ubuntu/HMM-Trader/.env`, `/home/ubuntu/kalshi-diamond/.env` |
 
 ### Firewall (Oracle Cloud Security List)
-Ports 8060, 8070, and 8080 open for dashboard access. AGATE/BERYL/CITRINE trading services don't expose ports. **Important**: Security List rules must be on the correct Security List — the one attached to the instance's subnet. Navigate: Compute → Instances → instance → Primary VNIC → Subnet → Security Lists.
+Ports 8060, 8070, 8080, and 8090 open for dashboard access. AGATE/BERYL/CITRINE trading services don't expose ports. **Important**: Security List rules must be on the correct Security List — the one attached to the instance's subnet. Navigate: Compute → Instances → instance → Primary VNIC → Subnet → Security Lists.
+
+### Version Control (GitHub)
+**Repo**: `github.com/pjnks/hmm-trader` (private), **Branch**: `main`
+**Auto-push**: launchd plist `com.quant.autopush-trading-core` commits + pushes every 4h.
+`.gitignore` excludes: `.env*`, `*.db*`, `data_cache/`, `*.pkl`, `*.html`, `*.log`, `*_results.csv`, `*_status.json`, `*.pptx`, `node_modules/`, `__pycache__/`, `.claude/`
+Auto-push requires Full Disk Access for `/bin/bash` (System Settings > Privacy & Security).
 
 ### Deploying Code Updates
 ```bash
-# Transfer updated files to VM
 scp -i ~/.ssh/hmm-trader.key <file> ubuntu@129.158.40.51:/home/ubuntu/HMM-Trader/
-# Then restart the affected service
 ssh -i ~/.ssh/hmm-trader.key ubuntu@129.158.40.51 "sudo systemctl restart <service-name>"
 ```
 
@@ -604,12 +610,12 @@ Where:
     - **3.6 Dashboard enhancements**: Added `_position_health_table()` (ticker, direction, entry/current price, unrealized P&L, sector) and `_signal_frequency_card()` (7-day entry/exit counts vs expected, flags >20% deviation) to `citrine_dashboard.py`.
 
 ### Current Phase: All Four Sub-Projects Running 24/7 on Oracle Cloud (2026-03-22)
-- **7 systemd services + watchdog timer deployed to Oracle Cloud VM** (VM.Standard.E2.1.Micro, 1 OCPU, 1GB RAM) with auto-restart
+- **8 systemd services + watchdog timer deployed to Oracle Cloud VM** (VM.Standard.E2.1.Micro, 1 OCPU, 1GB RAM) with auto-restart. Watchdog monitors all 8 services (4 traders + 4 dashboards) every 15 min.
 - **AGATE** running `--test` with ensemble HMM on 14 crypto tickers. First live BUY: ENAUSD (8/8 confirmations, 0.98 confidence, 2026-03-26). Paper P&L tracking via `open_positions` table (Sprint 7). **Sprint 8 (2026-03-28)**: 4 tickers (LTC/SUI/DOGE/ADA) only had ~95d data — backfilling to 730d, then re-optimizing. 12/14 tickers have per-ticker configs. Config: `extended_v2`/7cf (stability-tested Sharpe +0.837).
-- **BERYL** running 98-ticker ensemble rotation with up to 3 positions. 1 closed trade: ARM +$23.11 (+2.77%). Intra-day risk checks now using `fetch_latest_price()` (Sprint 7 fix — was silently failing). Sprint 5 upgrades: ensemble HMM, 365-day lookback, 100% convergence, multi-position, smart insider scoring.
+- **BERYL** running 98-ticker ensemble rotation with up to 3 positions (58 with BERYL-optimized configs, 40 use defaults). 1 closed trade: ARM +$23.11 (+2.77%), re-entered ARM @ $144.27 on 2026-03-27. **Sprint 8 fix (2026-03-28)**: was loading `citrine_per_ticker_configs.json` instead of `beryl_per_ticker_configs.json` — all signals computed with wrong HMM params. Fixed config loading + added `_load_ticker_universe()` for two-layer design (citrine config = 98-ticker scan universe, beryl config = 58 optimized HMM params). Watchdog false-positive fix: sleeping Python (1-5MB) triggered <5MB zombie threshold, restarting traders every ~45 min.
 - **CITRINE** running 82-ticker long-only live test. **Sprint 7 COMPLETE (2026-03-26)**: (1) cash band enforced as hard floor in `_execute_rebalance()`, (2) persistence bonus replaced with sojourn decay from HMM transition matrix `A[k,k]`, (3) continuous cash scaling replaces rigid bucketed bands, (4) intraday price fix via `fetch_latest_price()`. Current: $24,892 equity, 10 positions, 38% cash, 108 trades, 47% win rate.
 - **DIAMOND** running WebSocket anomaly detection on all Kalshi markets with paper trading engine + ML scorer (Lasso, AUC 0.823, A/B logging mode). Dashboard at :8080.
-- **All 3 dashboards accessible**: :8060 (AGATE+BERYL, with regime panels), :8070 (CITRINE, with position health + signal frequency), :8080 (DIAMOND, anomaly feed + portfolio status)
+- **All 4 dashboards accessible**: :8060 (AGATE+BERYL, with regime panels), :8070 (CITRINE, with position health + signal frequency), :8080 (DIAMOND, anomaly feed + portfolio status), :8090 (Consolidated, all projects)
 - **Watchdog timer** runs every 15 minutes — checks journald log freshness + memory footprint, auto-restarts zombie services. Deployed 2026-03-26 after all 3 traders went zombie simultaneously.
 - Kill-switch automation active across all four projects (with grace period for CITRINE and BERYL)
 - All optimizers COMPLETE: BERYL P3 (242), AGATE WF ensemble (200), CITRINE re-opt (585)
@@ -631,7 +637,7 @@ Where:
   - Key finding: 1d timeframe dominates equities (48% positive vs 11-25% for 2h/4h)
   - Optimizer: `optimize_beryl_p3.py` — expanded grid, 5 n_states, 3 timeframes
 - **Sprint 5 — BERYL Model Excellence** (2026-03-22, 7 upgrades):
-  1. **98-ticker expansion**: Loads all tickers from `citrine_per_ticker_configs.json` (was 5 hardcoded)
+  1. **98-ticker expansion**: Loads all 98 NDX100 tickers (was 5 hardcoded). **Note**: Sprint 8 (2026-03-28) separated ticker universe (from citrine config) from HMM params (from `beryl_per_ticker_configs.json`) — see `_load_ticker_universe()`
   2. **Ensemble HMM**: `EnsembleHMM(n_states_list=[N-1, N, N+1])` with majority voting (was single-model)
   3. **Fallback retry**: If ensemble doesn't converge, retries with single `HMMRegimeModel(n_states=4, cov_type="diag")`
   4. **365-day lookback**: `LOOKBACK_DAYS = 365` (was 180), ~252 trading days → **100% convergence** (was 71%)
@@ -1004,7 +1010,7 @@ BERYL Phase 2 optimizer — focused on TSLA + NVDA only with intraday timeframes
 
 ### `live_trading_beryl.py`
 BERYL live trading engine for NDX100 equities — 98-ticker ensemble rotation (Sprint 5 rewrite).
-- CLI: `--test`, `--tickers NVDA,TSLA,...` (default: all 98 from citrine_per_ticker_configs.json), `--min-confirmations N` (override per-ticker thresholds)
+- CLI: `--test`, `--tickers NVDA,TSLA,...` (default: all 98 NDX100 tickers), `--min-confirmations N` (override per-ticker thresholds)
 - **Ensemble HMM** (Sprint 5): uses `EnsembleHMM(n_states_list=[N-1, N, N+1])` per ticker with fallback to single `HMMRegimeModel(n_states=4)` if ensemble fails
 - **Multi-position** (Sprint 5): holds up to `MAX_POSITIONS = 3` ($833 each), per-ticker cooldowns (`self.cooldowns: dict[str, datetime]`)
 - **365-day lookback** (Sprint 5): `LOOKBACK_DAYS = 365`, fetches 2 years of data → 100% convergence (was 71% at 180 days)
@@ -1361,7 +1367,7 @@ BERYL uses daily bars for equities. With ~58 daily observations per 3-month test
 `src/notifier.py` uses `osascript` for macOS native notifications. On the Oracle Cloud Ubuntu VM, these silently fail. Only Pushover push and terminal bell work on the VM. This is expected — macOS-specific features are no-ops on Linux.
 
 ### VM RAM is tight (568MB/956MB used)
-The 7 systemd services consume ~587 MB total on 956 MB available RAM + 4 GB swap. Adding more services may cause swap thrashing. Monitor with `free -h` on the VM. If RAM becomes an issue, consider migrating to Hetzner CCX23 (~$25/mo, 4 dedicated CPU/16GB RAM).
+The 8 systemd services consume ~680 MB total on 956 MB available RAM + 4 GB swap. Adding more services may cause swap thrashing. Monitor with `free -h` on the VM. If RAM becomes an issue, consider migrating to Hetzner CCX23 (~$25/mo, 4 dedicated CPU/16GB RAM).
 
 ### `reconcile.py` may have import issues on VM
 The reconciliation script was designed for Mac development environment. Some imports may fail on the VM's miniconda Python 3.13 (vs Mac's Python 3.9). Run reconciliation on Mac, not VM.
@@ -1435,6 +1441,9 @@ When CITRINE exited positions for tickers not in the latest scan (e.g., dropped 
 
 ### DIAMOND ML scorer in-sample fraud (FIXED 2026-03-25)
 `compare_with_handtuned()` used `predict()` on the same data the model was trained on — the +$6.26 ML P&L was entirely in-sample. Honest OOS numbers: 55.6% win rate on 36 trades, +27 cents. Fixed: comparison now uses only held-out CV fold predictions. Platt scaling disabled at N<500. Wilson CI added.
+
+### macOS Full Disk Access blocks ALL launchd agents (2026-03-28)
+All launchd plists accessing `~/Documents/` fail with "Operation not permitted" — including the Sunday optimizer plists (`com.hmm-trader.optimize-*`) and auto-push plists (`com.quant.autopush-*`). Root cause: macOS `com.apple.provenance` attribute on `/bin/bash` prevents filesystem access from launchd context. **Fix**: System Settings → Privacy & Security → Full Disk Access → add `/bin/bash` (click `+`, `Cmd+Shift+G`, type `/bin/bash`). This is a one-time system setting change that fixes all current and future launchd agents. Also discovered the Sunday optimizer plists have been silently failing since the macOS update — they were NOT running.
 
 ## Optimization History
 

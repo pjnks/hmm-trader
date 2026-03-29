@@ -142,5 +142,41 @@
     "total_trades": 31,
     "positive_windows": 1,
     "n_windows": 2
+  },
+  "X:LTCUSD": {
+    "n_states": 4,
+    "feature_set": "extended",
+    "confirmations": 8,
+    "cov_type": "diag",
+    "timeframe": "4h",
+    "wf_sharpe": 2.558,
+    "wf_return": 4.62,
+    "total_trades": 7,
+    "positive_windows": 4,
+    "n_windows": 5
+  },
+  "X:SUIUSD": {
+    "n_states": 4,
+    "feature_set": "base",
+    "confirmations": 5,
+    "cov_type": "full",
+    "timeframe": "3h",
+    "wf_sharpe": 3.244,
+    "wf_return": 21.31,
+    "total_trades": 136,
+    "positive_windows": 5,
+    "n_windows": 5
+  },
+  "X:DOGEUSD": {
+    "n_states": 6,
+    "feature_set": "extended_v2",
+    "confirmations": 5,
+    "cov_type": "full",
+    "timeframe": "3h",
+    "wf_sharpe": 0.789,
+    "wf_return": 4.85,
+    "total_trades": 120,
+    "positive_windows": 3,
+    "n_windows": 5
   }
 }

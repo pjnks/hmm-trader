@@ -76,3 +76,10 @@ check_service citrine-trader  1560
 # DIAMOND: WebSocket streaming, should log every 2min; allow 10min staleness
 # Uses log FILE (not journald) — Diamond uses StandardOutput=append
 check_service diamond-monitor 10 /home/ubuntu/kalshi-diamond/diamond_monitor.log
+
+# DASHBOARDS: Dash apps log on startup + every auto-refresh (60s).
+# Allow 10min staleness — if no log output for 10min, the dashboard is dead.
+check_service live-dashboard          10
+check_service citrine-dashboard       10
+check_service diamond-dashboard       10
+check_service consolidated-dashboard  10

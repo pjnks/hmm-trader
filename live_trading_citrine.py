@@ -781,13 +781,17 @@ class CitrineLiveEngine:
                 # Still between daily cycles — run intraday risk check
                 self._check_intraday_risk()
 
+    # ── Trailing stop-loss threshold ─────────────────────────────────────
+    TRAILING_STOP_PCT = -0.02  # -2% per-position trailing stop
+
     def _check_intraday_risk(self) -> None:
         """
-        Sprint 3.5: Intra-day risk check — called every 4 hours during sleep.
+        Intra-day risk check — called every 4 hours during sleep.
         Fetches latest prices for held tickers and checks unrealized P&L.
 
+        Per-position trailing stop (Sprint 9):
+          - Any position unrealized loss > 2% → force-exit immediately
         Warnings:
-          - Any position unrealized loss > 5%
           - Portfolio unrealized loss > 3%
         Kill-switch trigger:
           - Total unrealized loss > 5% of capital
@@ -800,8 +804,9 @@ class CitrineLiveEngine:
 
         total_unrealized = 0.0
         warnings = []
+        stop_loss_exits = []  # tickers to force-exit
 
-        for ticker, pos in self.positions.items():
+        for ticker, pos in list(self.positions.items()):
             from src.data_fetcher import fetch_latest_price
             current_price = fetch_latest_price(ticker)
             if current_price is None or current_price <= 0:
@@ -816,14 +821,48 @@ class CitrineLiveEngine:
             unrealized_pct = unrealized / pos.notional if pos.notional > 0 else 0
             total_unrealized += unrealized
 
-            # Warn if single position loss > 5%
-            if unrealized_pct < -0.05:
-                msg = (f"  [Intraday] WARNING: {ticker} unrealized {unrealized_pct:.1%} "
-                       f"(${unrealized:.2f})")
+            # Trailing stop-loss: force-exit if position loss exceeds threshold
+            if unrealized_pct < self.TRAILING_STOP_PCT:
+                msg = (f"  [STOP-LOSS] {ticker} hit {unrealized_pct:.1%} "
+                       f"(${unrealized:.2f}) — breached {self.TRAILING_STOP_PCT:.0%} stop")
                 log.warning(msg)
                 warnings.append(msg)
+                stop_loss_exits.append((ticker, current_price))
+            elif unrealized_pct < -0.01:
+                # Warn at -1% (early warning before stop triggers)
+                msg = (f"  [Intraday] WATCH: {ticker} unrealized {unrealized_pct:.1%} "
+                       f"(${unrealized:.2f})")
+                log.info(msg)
 
-        # Portfolio-level check
+        # Execute trailing stop-loss exits
+        if stop_loss_exits:
+            log.warning(f"  [STOP-LOSS] Exiting {len(stop_loss_exits)} positions: "
+                        f"{[t for t, _ in stop_loss_exits]}")
+            for ticker, price in stop_loss_exits:
+                try:
+                    self._force_exit_single(ticker, price, reason="trailing_stop")
+                except Exception as e:
+                    log.error(f"  [STOP-LOSS] Failed to exit {ticker}: {e}")
+
+            _pushover_notify(
+                "CITRINE Stop-Loss",
+                f"Exited {len(stop_loss_exits)} positions: "
+                + ", ".join(f"{t} @ ${p:.2f}" for t, p in stop_loss_exits),
+                priority=0,
+            )
+
+        # Portfolio-level check (recalculate after any stop-loss exits)
+        if self.positions:
+            total_unrealized = 0.0
+            for ticker, pos in self.positions.items():
+                current_price = fetch_latest_price(ticker)
+                if current_price is None or current_price <= 0:
+                    current_price = pos.entry_price
+                if pos.direction == "LONG":
+                    total_unrealized += pos.shares * (current_price - pos.entry_price)
+                else:
+                    total_unrealized += pos.shares * (pos.entry_price - current_price)
+
         portfolio_pct = total_unrealized / self.capital if self.capital > 0 else 0
 
         if portfolio_pct < -0.03:
@@ -838,7 +877,6 @@ class CitrineLiveEngine:
                       f"(${total_unrealized:.2f}) exceeds 5% of capital")
             log.error(f"KILL-SWITCH: {reason}")
             self._kill_switch_alert(reason)
-            # Force exit all positions
             self._emergency_exit_all(reason)
             return
 
@@ -848,6 +886,47 @@ class CitrineLiveEngine:
         else:
             log.info("  [Intraday] All positions within risk limits "
                      f"(unrealized: {portfolio_pct:+.2%})")
+
+    def _force_exit_single(self, ticker: str, current_price: float,
+                           reason: str = "stop_loss") -> None:
+        """Force-exit a single position (trailing stop-loss or risk limit)."""
+        pos = self.positions.get(ticker)
+        if pos is None:
+            return
+
+        fill_price = self._simulate_fill(
+            current_price, "SELL" if pos.direction == "LONG" else "BUY")
+
+        if pos.direction == "LONG":
+            pnl = pos.shares * (fill_price - pos.entry_price)
+        else:
+            pnl = pos.shares * (pos.entry_price - fill_price)
+
+        notional = pos.shares * fill_price
+        fee = (notional + pos.notional) * TAKER_FEE
+        pnl -= fee
+        pnl_pct = (pnl / pos.notional) * 100
+
+        self.cash += (notional - fee / 2)
+        del self.positions[ticker]
+
+        log.warning(f"  🛑 STOP-EXIT {ticker}: {pos.shares:.2f} shares @ ${fill_price:.2f} "
+                    f"P&L: ${pnl:+.2f} ({pnl_pct:+.2f}%) [{reason}]")
+
+        # Log to DB
+        scan_stub = TickerScan(
+            ticker=ticker, regime_cat="STOP", confidence=0.0,
+            persistence=0, realized_vol=0.0, confirmations=0,
+            confirmations_short=0, current_price=current_price,
+            sector="", hmm_converged=False,
+        )
+        w_stub = PortfolioWeight(
+            ticker=ticker, direction="FLAT", raw_score=0.0,
+            target_weight=0.0, scaled_weight=0.0, notional_usd=0.0,
+            days_held=0, action="STOP_EXIT",
+        )
+        self._log_trade(ticker, "STOP_EXIT", pos.direction, pos.shares,
+                        fill_price, notional, pnl, pnl_pct, w_stub, scan_stub)
 
     def _emergency_exit_all(self, reason: str) -> None:
         """Emergency exit all positions when kill-switch triggers."""

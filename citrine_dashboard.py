@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, date, timezone
 from pathlib import Path
 
 import numpy as np
@@ -51,6 +51,80 @@ CYAN     = "#00e5ff"
 
 DB_PATH = ROOT / "citrine_trades.db"
 WF_CSV  = ROOT / "citrine_wf_results.csv"
+
+
+# ── Trading calendar helpers ─────────────────────────────────────────────────
+
+def _us_market_holidays(year: int) -> set[date]:
+    """Return set of US stock market holidays for a given year.
+
+    Covers NYSE/NASDAQ closures: New Year's, MLK Day, Presidents' Day,
+    Good Friday, Memorial Day, Juneteenth, Independence Day, Labor Day,
+    Thanksgiving, Christmas. Observed-date rules applied.
+    """
+    from datetime import timedelta
+
+    holidays: set[date] = set()
+
+    def _nearest_weekday(d: date) -> date:
+        """If holiday falls on Sat→Fri, Sun→Mon."""
+        if d.weekday() == 5:  # Saturday
+            return d - timedelta(days=1)
+        if d.weekday() == 6:  # Sunday
+            return d + timedelta(days=1)
+        return d
+
+    def _nth_weekday(year: int, month: int, weekday: int, n: int) -> date:
+        """Return the nth occurrence of weekday in month (1-indexed)."""
+        first = date(year, month, 1)
+        offset = (weekday - first.weekday()) % 7
+        return first + timedelta(days=offset + 7 * (n - 1))
+
+    # New Year's Day (Jan 1)
+    holidays.add(_nearest_weekday(date(year, 1, 1)))
+    # MLK Day (3rd Monday in January)
+    holidays.add(_nth_weekday(year, 1, 0, 3))  # Monday=0
+    # Presidents' Day (3rd Monday in February)
+    holidays.add(_nth_weekday(year, 2, 0, 3))
+    # Good Friday (2 days before Easter Sunday)
+    # Easter algorithm (Anonymous Gregorian)
+    a = year % 19
+    b, c = divmod(year, 100)
+    d, e = divmod(b, 4)
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = divmod(c, 4)
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month_e = (h + l - 7 * m + 114) // 31
+    day_e = ((h + l - 7 * m + 114) % 31) + 1
+    easter = date(year, month_e, day_e)
+    holidays.add(easter - timedelta(days=2))  # Good Friday
+    # Memorial Day (last Monday in May)
+    d = date(year, 5, 31)
+    while d.weekday() != 0:
+        d -= timedelta(days=1)
+    holidays.add(d)
+    # Juneteenth (June 19)
+    holidays.add(_nearest_weekday(date(year, 6, 19)))
+    # Independence Day (July 4)
+    holidays.add(_nearest_weekday(date(year, 7, 4)))
+    # Labor Day (1st Monday in September)
+    holidays.add(_nth_weekday(year, 9, 0, 1))
+    # Thanksgiving (4th Thursday in November)
+    holidays.add(_nth_weekday(year, 11, 3, 4))  # Thursday=3
+    # Christmas (December 25)
+    holidays.add(_nearest_weekday(date(year, 12, 25)))
+
+    return holidays
+
+
+def _is_trading_day(d: date) -> bool:
+    """Return True if d is a US stock market trading day (not weekend/holiday)."""
+    if d.weekday() >= 5:  # Saturday or Sunday
+        return False
+    return d not in _us_market_holidays(d.year)
 
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
@@ -655,20 +729,24 @@ def update_dashboard(_n):
 
     # ── 2nd row: 5-day session P&L history ──────────────────────────────
     # Each tile shows one trading day's P&L (Day 0 = most recent started session)
+    # Weekends and US market holidays are excluded — only real trading days shown.
     day_cards = []
     if not snap_df.empty:
         snap_df["_date"] = pd.to_datetime(snap_df["timestamp"]).dt.date
         unique_dates = sorted(snap_df["_date"].unique())
 
-        # Build per-day equity: last snapshot equity for each date
+        # Filter to trading days only (exclude weekends + US market holidays)
+        trading_dates = [d for d in unique_dates if _is_trading_day(d)]
+
+        # Build per-day equity: last snapshot equity for each trading date
         day_equities = []
-        for d in unique_dates:
+        for d in trading_dates:
             day_snap = snap_df[snap_df["_date"] == d].iloc[-1]
             day_equities.append((d, day_snap["total_equity"]))
 
-        # Compute daily P&L for up to last 5 days
+        # Compute daily P&L for up to last 10 trading days
         # Day 0 uses previous day close (or $25k start) as baseline
-        num_days = min(len(day_equities), 5)
+        num_days = min(len(day_equities), 10)
         for i in range(num_days):
             idx = len(day_equities) - num_days + i  # index into day_equities
             d, eq = day_equities[idx]
@@ -696,15 +774,15 @@ def update_dashboard(_n):
 
     if not day_cards:
         # No data yet — show placeholder
-        for i in range(5):
-            offset = -(4 - i)
+        for i in range(10):
+            offset = -(9 - i)
             label = f"Day {offset}" if offset < 0 else "Day 0 (today)"
             day_cards.append(
                 dbc.Col(_metric_card(label, "—", TEXT_DIM), md=True, sm=4)
             )
 
-    # Pad to exactly 5 columns if fewer days exist
-    while len(day_cards) < 5:
+    # Pad to exactly 10 columns if fewer days exist
+    while len(day_cards) < 10:
         day_cards.insert(0, dbc.Col(_metric_card("—", "—", TEXT_DIM), md=True, sm=4))
 
     day_row = dbc.Row(day_cards, className="g-2", style={"marginBottom": "16px"})

@@ -380,10 +380,12 @@ class CitrineAllocator:
                 # 4. Sojourn decay (replaces persistence bonus — PhD review fix)
                 # Regimes are metastable: expected remaining lifetime DECREASES as
                 # regime ages. The transition matrix A[k,k] gives half-life.
-                # Score decays from 1.0x to 0.5x as persistence exceeds half-life.
-                half_life = max(getattr(scan, "regime_half_life", 30.0), 3.0)
+                # Sprint 9: tightened — decay starts immediately (was delayed to
+                # 50% of half-life), floor lowered from 0.5x to 0.3x. This
+                # prevents holding aging regimes too long (CHOP exits were -5.55%).
+                half_life = max(getattr(scan, "regime_half_life", 20.0), 3.0)
                 sojourn_ratio = scan.persistence / half_life
-                sojourn_factor = max(0.5, 1.0 - 0.5 * max(0, sojourn_ratio - 0.5))
+                sojourn_factor = max(0.3, 1.0 - 0.7 * sojourn_ratio)
 
                 # Alt-data boost (insider buying/selling signal)
                 alt_boost = 1.0

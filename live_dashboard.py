@@ -384,6 +384,172 @@ def _scan_summary_section(status: dict) -> list:
     return rows
 
 
+def _ticker_scoreboard(status: dict) -> html.Div:
+    """Full 14-ticker scoreboard table showing regime, confidence, confirms, signal, and distance to BUY."""
+    summary = status.get("scan_summary", [])
+    if not summary:
+        return html.Div(
+            "No scan data — waiting for first complete scan",
+            style={"color": TEXT_DIM, "textAlign": "center", "padding": "20px",
+                   "fontSize": "0.8rem", "fontFamily": "monospace",
+                   "backgroundColor": PANEL, "border": f"1px solid {BORDER}",
+                   "borderRadius": "8px"},
+        )
+
+    # Sort: BULL first (by confirmations desc, then confidence desc), then CHOP, then BEAR
+    regime_order = {"BULL": 0, "CHOP": 1, "BEAR": 2}
+    summary_sorted = sorted(summary, key=lambda s: (
+        regime_order.get(s.get("regime", "CHOP"), 1),
+        -s.get("confirmations", 0),
+        -s.get("confidence", 0),
+    ))
+
+    # Per-ticker config thresholds
+    try:
+        import json as _json
+        cfg_path = ROOT / "agate_per_ticker_configs.json"
+        if cfg_path.exists():
+            with open(cfg_path) as f:
+                per_ticker_cfgs = _json.load(f)
+        else:
+            per_ticker_cfgs = {}
+    except Exception:
+        per_ticker_cfgs = {}
+
+    rows = []
+    for s in summary_sorted:
+        ticker_raw = s.get("ticker", "?")
+        ticker_short = ticker_raw.replace("X:", "").replace("USD", "")
+        regime = s.get("regime", "?")
+        conf = s.get("confidence", 0)
+        confirms = s.get("confirmations", 0)
+        signal = s.get("signal", "HOLD")
+        price = s.get("current_price", 0)
+
+        # Look up per-ticker confirmation threshold
+        tcfg = per_ticker_cfgs.get(ticker_raw, {})
+        min_cf = tcfg.get("confirmations", 7)
+        # Adaptive: at conf > 0.90, threshold drops by 1
+        effective_cf = min_cf - 1 if conf > 0.90 else min_cf
+
+        # Regime colour
+        if regime == "BULL":
+            r_color = GREEN
+        elif regime == "BEAR":
+            r_color = RED
+        else:
+            r_color = YELLOW
+
+        # Signal colour
+        sig_colors = {"BUY": GREEN, "SELL": RED, "HOLD": TEXT_DIM}
+        sig_color = sig_colors.get(signal, TEXT_DIM)
+
+        # Distance to BUY
+        if regime == "BULL" and conf >= 0.70:
+            gap = max(0, effective_cf - confirms)
+            if gap == 0:
+                dist_text = "BUY!"
+                dist_color = GREEN
+            else:
+                dist_text = f"-{gap} cf"
+                dist_color = BLUE if gap <= 2 else TEXT_DIM
+        elif regime == "BULL":
+            dist_text = "low conf"
+            dist_color = YELLOW
+        else:
+            dist_text = "—"
+            dist_color = TEXT_DIM
+
+        # Confirmation bar (visual: filled vs empty squares)
+        cf_filled = "█" * confirms
+        cf_empty = "░" * (8 - confirms)
+        cf_color = GREEN if confirms >= 6 else (YELLOW if confirms >= 4 else RED)
+
+        # Price formatting
+        if price >= 100:
+            price_str = f"${price:,.0f}"
+        elif price >= 1:
+            price_str = f"${price:.2f}"
+        else:
+            price_str = f"${price:.4f}"
+
+        row_style = {
+            "display": "grid",
+            "gridTemplateColumns": "60px 50px 50px 80px 48px 75px 60px",
+            "gap": "4px",
+            "alignItems": "center",
+            "padding": "4px 8px",
+            "borderBottom": f"1px solid {BORDER}",
+            "fontSize": "0.72rem",
+            "fontFamily": "monospace",
+        }
+
+        rows.append(html.Div([
+            html.Span(ticker_short, style={"color": TEXT, "fontWeight": "700"}),
+            html.Span(regime, style={"color": r_color, "fontWeight": "700",
+                                      "fontSize": "0.65rem"}),
+            html.Span(f"{conf:.0%}", style={"color": r_color}),
+            html.Span(f"{cf_filled}{cf_empty}", style={"color": cf_color,
+                                                         "letterSpacing": "1px"}),
+            html.Span(signal, style={"color": sig_color, "fontWeight": "700",
+                                      "fontSize": "0.65rem"}),
+            html.Span(price_str, style={"color": TEXT}),
+            html.Span(dist_text, style={"color": dist_color, "fontWeight": "700",
+                                         "fontSize": "0.65rem"}),
+        ], style=row_style))
+
+    # Header row
+    hdr_style = {
+        "display": "grid",
+        "gridTemplateColumns": "60px 50px 50px 80px 48px 75px 60px",
+        "gap": "4px",
+        "padding": "4px 8px",
+        "borderBottom": f"2px solid {BORDER}",
+        "fontSize": "0.6rem",
+        "fontFamily": "monospace",
+        "color": TEXT_DIM,
+        "letterSpacing": "0.05em",
+    }
+    header_row = html.Div([
+        html.Span("TICKER"),
+        html.Span("REGIME"),
+        html.Span("CONF"),
+        html.Span("CONFIRMS"),
+        html.Span("SIG"),
+        html.Span("PRICE"),
+        html.Span("→ BUY"),
+    ], style=hdr_style)
+
+    # Timestamp
+    ts = status.get("timestamp", "")
+    age_str = ""
+    if ts:
+        try:
+            ts_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            age = (datetime.now(tz=timezone.utc) - ts_dt).total_seconds()
+            age_str = f" ({int(age // 60)}m ago)" if age < 3600 else f" ({age / 3600:.1f}h ago)"
+        except Exception:
+            pass
+
+    return html.Div([
+        html.Div([
+            html.Span("AGATE TICKER SCOREBOARD",
+                       style={"color": TEXT_DIM, "letterSpacing": "0.1em",
+                              "fontSize": "0.72rem"}),
+            html.Span(age_str,
+                       style={"color": TEXT_DIM, "fontSize": "0.6rem",
+                              "fontStyle": "italic"}),
+        ], style={"marginBottom": "8px"}),
+        header_row,
+        *rows,
+    ], style={
+        "backgroundColor": PANEL,
+        "border": f"1px solid {BORDER}",
+        "borderRadius": "8px",
+        "padding": "12px",
+    })
+
+
 def _beryl_regime_panel(status: dict) -> html.Div:
     """Build a dedicated BERYL regime panel for 98-ticker ensemble scanning."""
     if not status:
@@ -1106,6 +1272,11 @@ def update_dashboard(_n):
         dbc.Col(_beryl_regime_panel(beryl_status), md=7, sm=12),
     ], className="g-2", style={"marginBottom": "16px"})
 
+    # ── AGATE ticker scoreboard row ──────────────────────────────────────
+    scoreboard_row = dbc.Row([
+        dbc.Col(_ticker_scoreboard(agate_status), md=12),
+    ], className="g-2", style={"marginBottom": "16px"})
+
     # ── Cross-project agreement row ────────────────────────────────────────
     cross_row = dbc.Row([
         dbc.Col(_cross_project_panel(beryl_status), md=12),
@@ -1150,7 +1321,7 @@ def update_dashboard(_n):
         ),
     ], className="g-2")
 
-    body = html.Div([top_row, regime_row, cross_row, middle_row, bottom_row])
+    body = html.Div([top_row, regime_row, scoreboard_row, cross_row, middle_row, bottom_row])
 
     return header, body
 
