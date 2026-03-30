@@ -26,10 +26,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 import dash
 from dash import html, dcc
-from dash.dependencies import Input, Output
+from dash.dependencies import Input, Output, State, ALL
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 ROOT = Path(__file__).parent
@@ -87,9 +88,9 @@ PURPLE      = "#c471f5"
 ORANGE      = "#ff8a50"
 
 PROJECT_COLORS = {
-    "AGATE":   ORANGE,
+    "AGATE":   GREEN,
     "BERYL":   BLUE,
-    "CITRINE": GREEN,
+    "CITRINE": ORANGE,
     "DIAMOND": PURPLE,
 }
 
@@ -195,6 +196,31 @@ body::before {
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.02em;
     line-height: 1.1;
+}
+
+/* Project filter toggles */
+.project-toggle {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    padding: 4px 6px;
+    margin: 0 -6px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    background: transparent;
+    width: calc(100% + 12px);
+    transition: background 0.2s ease, border-color 0.2s ease, opacity 0.3s ease;
+    font-family: inherit;
+    text-align: left;
+}
+
+.project-toggle:hover {
+    background: rgba(0, 232, 255, 0.04);
+    border-color: rgba(0, 232, 255, 0.08);
+}
+
+.project-toggle.dimmed {
+    opacity: 0.25;
 }
 
 .metric-label {
@@ -468,6 +494,21 @@ def _compute_project_metrics(project: str, trades_df: pd.DataFrame) -> dict:
     }
 
 
+def _apply_filter(fig: go.Figure, active_filter: list[str]) -> go.Figure:
+    """Set trace visibility based on active project filter."""
+    for trace in fig.data:
+        name = trace.name or ""
+        legendgroup = getattr(trace, "legendgroup", "") or ""
+        if name == "COMBINED":
+            trace.visible = True
+        else:
+            trace.visible = any(
+                name == p or name.startswith(p) or legendgroup == p
+                for p in active_filter
+            )
+    return fig
+
+
 # ── Chart Builders ────────────────────────────────────────────────────────────
 
 CHART_LAYOUT = dict(
@@ -553,10 +594,10 @@ def _build_degradation_chart(all_trades: dict[str, pd.DataFrame]) -> go.Figure:
     )
 
     for project, df in all_trades.items():
-        if df.empty or "pnl" not in df.columns or len(df) < 5:
+        if df.empty or "pnl" not in df.columns or len(df) < 2:
             continue
         pnls = df.sort_values("timestamp")["pnl"].values.astype(float)
-        window = 10
+        window = min(10, len(pnls))
         rolling = []
         for i in range(window, len(pnls) + 1):
             chunk = pnls[i - window:i]
@@ -564,9 +605,10 @@ def _build_degradation_chart(all_trades: dict[str, pd.DataFrame]) -> go.Figure:
             rolling.append(float(np.mean(chunk) / std) if std > 1e-9 else 0.0)
 
         if rolling:
+            label = f"{project}" if window == 10 else f"{project} ({window}t)"
             fig.add_trace(go.Scatter(
                 x=list(range(window, len(pnls) + 1)), y=rolling,
-                name=project, line=dict(color=PROJECT_COLORS[project], width=1.5),
+                name=label, line=dict(color=PROJECT_COLORS[project], width=1.5),
             ))
 
     fig.add_hline(y=0, line=dict(color="rgba(255, 61, 113, 0.3)", width=1, dash="dash"))
@@ -596,6 +638,134 @@ def _build_pnl_distribution(all_trades: dict[str, pd.DataFrame]) -> go.Figure:
             opacity=0.6,
             nbinsx=20,
         ))
+
+    return fig
+
+
+def _build_metrics_over_time(all_trades: dict[str, pd.DataFrame]) -> go.Figure:
+    """2x2 subplot: cumulative P&L, cumulative trades, rolling win rate, rolling Sharpe.
+
+    Each metric is computed per-trade and plotted over calendar time.
+    Uses adaptive window: min(20, n_trades) for projects with few trades.
+    """
+    fig = make_subplots(
+        rows=2, cols=2,
+        subplot_titles=["CUMULATIVE P&L", "CUMULATIVE TRADES",
+                        "ROLLING WIN RATE", "ROLLING SHARPE"],
+        vertical_spacing=0.14,
+        horizontal_spacing=0.08,
+    )
+
+    # Style subplot titles
+    for ann in fig.layout.annotations:
+        ann.font = dict(size=9, color=TEXT_DIM, family="JetBrains Mono, monospace")
+
+    target_window = 20
+
+    for project, df in all_trades.items():
+        if df.empty or "pnl" not in df.columns:
+            continue
+        df = df.sort_values("timestamp").copy()
+        pnls = df["pnl"].values.astype(float)
+        ts = df["timestamp"].values
+        color = PROJECT_COLORS[project]
+        n = len(pnls)
+        w = min(target_window, n)
+
+        # 1) Cumulative P&L (row=1, col=1)
+        cum_pnl = np.cumsum(pnls)
+        fig.add_trace(go.Scatter(
+            x=ts, y=cum_pnl,
+            name=project, legendgroup=project,
+            line=dict(color=color, width=1.5),
+            showlegend=True,
+        ), row=1, col=1)
+
+        # 2) Cumulative trades (row=1, col=2)
+        cum_trades = np.arange(1, n + 1)
+        fig.add_trace(go.Scatter(
+            x=ts, y=cum_trades,
+            name=project, legendgroup=project,
+            line=dict(color=color, width=1.5),
+            showlegend=False,
+        ), row=1, col=2)
+
+        if n < 2:
+            continue
+
+        # 3) Rolling win rate (row=2, col=1)
+        wins = (pnls > 0).astype(float)
+        rolling_wr = []
+        rolling_wr_ts = []
+        for i in range(w, n + 1):
+            rolling_wr.append(float(np.mean(wins[i - w:i])))
+            rolling_wr_ts.append(ts[i - 1])
+
+        fig.add_trace(go.Scatter(
+            x=rolling_wr_ts, y=rolling_wr,
+            name=project, legendgroup=project,
+            line=dict(color=color, width=1.5),
+            showlegend=False,
+        ), row=2, col=1)
+
+        # 4) Rolling Sharpe (row=2, col=2)
+        rolling_sh = []
+        rolling_sh_ts = []
+        for i in range(w, n + 1):
+            chunk = pnls[i - w:i]
+            std = np.std(chunk)
+            rolling_sh.append(float(np.mean(chunk) / std) if std > 1e-9 else 0.0)
+            rolling_sh_ts.append(ts[i - 1])
+
+        fig.add_trace(go.Scatter(
+            x=rolling_sh_ts, y=rolling_sh,
+            name=project, legendgroup=project,
+            line=dict(color=color, width=1.5),
+            showlegend=False,
+        ), row=2, col=2)
+
+    # Reference lines
+    fig.add_hline(y=0.5, row=2, col=1,
+                  line=dict(color="rgba(255, 170, 0, 0.2)", width=1, dash="dash"))
+    fig.add_hline(y=0, row=2, col=2,
+                  line=dict(color="rgba(255, 61, 113, 0.3)", width=1, dash="dash"))
+    fig.add_hline(y=0, row=1, col=1,
+                  line=dict(color="rgba(255, 61, 113, 0.3)", width=1, dash="dash"))
+
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="JetBrains Mono, monospace", color=TEXT_DIM, size=10),
+        margin=dict(l=48, r=16, t=36, b=32),
+        height=380,
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.06, xanchor="right", x=1,
+            font=dict(size=9, color=TEXT_DIM),
+            bgcolor="rgba(0,0,0,0)",
+            tracegroupgap=0,
+        ),
+        showlegend=True,
+    )
+
+    # Style all axes
+    axis_style = dict(
+        gridcolor="rgba(0, 232, 255, 0.04)", gridwidth=1,
+        zerolinecolor="rgba(0, 232, 255, 0.06)",
+        tickfont=dict(size=8),
+    )
+    for ax_name in ["xaxis", "xaxis2", "xaxis3", "xaxis4",
+                     "yaxis", "yaxis2", "yaxis3", "yaxis4"]:
+        fig.update_layout(**{ax_name: axis_style})
+
+    # Y-axis labels
+    fig.update_yaxes(title=dict(text="$", font=dict(size=8)), row=1, col=1)
+    fig.update_yaxes(title=dict(text="#", font=dict(size=8)), row=1, col=2)
+    fig.update_yaxes(title=dict(text="%", font=dict(size=8)), row=2, col=1)
+    fig.update_yaxes(title=dict(text="σ", font=dict(size=8)), row=2, col=2)
+
+    # Format win rate as percentage
+    fig.update_yaxes(tickformat=".0%", row=2, col=1)
 
     return fig
 
@@ -822,8 +992,11 @@ def add_no_cache_headers(response):
     return response
 
 
+ALL_PROJECTS = ["AGATE", "BERYL", "CITRINE", "DIAMOND"]
+
 app.layout = html.Div([
     dcc.Interval(id="refresh", interval=60_000),
+    dcc.Store(id="project-filter", data=ALL_PROJECTS),
 
     # Header
     html.Div([
@@ -857,11 +1030,12 @@ app.layout = html.Div([
 @app.callback(
     Output("dashboard-content", "children"),
     Input("refresh", "n_intervals"),
+    State("project-filter", "data"),
 )
-def update_dashboard(_):
+def update_dashboard(_, active_filter):
     import traceback as _tb
     try:
-        return _update_dashboard_inner()
+        return _update_dashboard_inner(active_filter)
     except Exception as e:
         return [html.Pre(
             f"CALLBACK ERROR:\n{_tb.format_exc()}",
@@ -870,7 +1044,10 @@ def update_dashboard(_):
         )]
 
 
-def _update_dashboard_inner():
+def _update_dashboard_inner(active_filter=None):
+    if active_filter is None:
+        active_filter = list(ALL_PROJECTS)
+
     # Load all data
     all_trades = {}
     all_metrics = {}
@@ -982,7 +1159,8 @@ def _update_dashboard_inner():
     charts_row = html.Div([
         html.Div([
             html.Div(
-                dcc.Graph(figure=_build_equity_chart(all_trades, snapshots),
+                dcc.Graph(id="equity-chart",
+                          figure=_apply_filter(_build_equity_chart(all_trades, snapshots), active_filter),
                           config={"displayModeBar": False},
                           style={"height": "280px"}),
                 className="chart-container",
@@ -991,7 +1169,8 @@ def _update_dashboard_inner():
 
         html.Div([
             html.Div(
-                dcc.Graph(figure=_build_pnl_distribution(all_trades),
+                dcc.Graph(id="pnl-chart",
+                          figure=_apply_filter(_build_pnl_distribution(all_trades), active_filter),
                           config={"displayModeBar": False},
                           style={"height": "280px"}),
                 className="chart-container",
@@ -1004,11 +1183,30 @@ def _update_dashboard_inner():
         "marginBottom": "10px",
     })
 
-    # Row 4: Model health + timestamp
+    # Row 4: Metrics over time — 2×2 subplot (full width)
+    metrics_time_row = html.Div([
+        html.Div([
+            html.Div(
+                dcc.Graph(id="metrics-time-chart",
+                          figure=_apply_filter(_build_metrics_over_time(all_trades), active_filter),
+                          config={"displayModeBar": False},
+                          style={"height": "380px"}),
+                className="chart-container",
+            ),
+        ], className="bento-card anim-7", style={"gridColumn": "span 12"}),
+    ], style={
+        "display": "grid",
+        "gridTemplateColumns": "repeat(12, 1fr)",
+        "gap": "10px",
+        "marginBottom": "10px",
+    })
+
+    # Row 5: Model health + timestamp
     bottom_row = html.Div([
         html.Div([
             html.Div(
-                dcc.Graph(figure=_build_degradation_chart(all_trades),
+                dcc.Graph(id="health-chart",
+                          figure=_apply_filter(_build_degradation_chart(all_trades), active_filter),
                           config={"displayModeBar": False},
                           style={"height": "220px"}),
                 className="chart-container",
@@ -1019,8 +1217,8 @@ def _update_dashboard_inner():
             html.Div("SYSTEM STATUS", className="metric-label",
                      style={"marginBottom": "12px"}),
 
-            # Per-project status dots
-            *[html.Div([
+            # Per-project filter toggles (clickable)
+            *[html.Button([
                 html.Span("●", className="status-dot", style={
                     "backgroundColor": GREEN if m["degradation"] not in ("critical",) else RED,
                 }),
@@ -1028,7 +1226,10 @@ def _update_dashboard_inner():
                                      "fontWeight": "600", "letterSpacing": "0.1em"}),
                 html.Span(f"  {m['total_trades']}t", style={
                     "color": TEXT_MUTED, "fontSize": "0.6rem", "marginLeft": "4px"}),
-            ], style={"marginBottom": "6px"})
+            ], id={"type": "project-toggle", "project": p},
+               className="project-toggle" if p in active_filter else "project-toggle dimmed",
+               n_clicks=0,
+               style={"marginBottom": "6px"})
               for p, m in all_metrics.items()],
 
             html.Div(style={"height": "1px", "background": BORDER, "margin": "12px 0"}),
@@ -1051,7 +1252,114 @@ def _update_dashboard_inner():
         "marginBottom": "10px",
     })
 
-    return [metrics_row, projects_row, charts_row, bottom_row]
+    return [metrics_row, projects_row, charts_row, metrics_time_row, bottom_row]
+
+
+# ── Filter Callbacks ─────────────────────────────────────────────────────────
+
+@app.callback(
+    Output("project-filter", "data"),
+    Input({"type": "project-toggle", "project": ALL}, "n_clicks"),
+    State("project-filter", "data"),
+    prevent_initial_call=True,
+)
+def toggle_project_filter(n_clicks_list, current_filter):
+    """Toggle a project in/out of the active filter list."""
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return dash.no_update
+
+    # Extract which project was clicked from the trigger id
+    trigger = ctx.triggered[0]
+    prop_id = trigger["prop_id"]  # e.g. '{"project":"AGATE","type":"project-toggle"}.n_clicks'
+    try:
+        btn_id = json.loads(prop_id.rsplit(".", 1)[0])
+        clicked = btn_id["project"]
+    except (json.JSONDecodeError, KeyError):
+        return dash.no_update
+
+    if current_filter is None:
+        current_filter = list(ALL_PROJECTS)
+
+    if clicked in current_filter:
+        # Deselect — but don't allow empty filter (keep at least one)
+        new_filter = [p for p in current_filter if p != clicked]
+        if not new_filter:
+            # If this was the last one, reset to all (toggle-all-off = show all)
+            return list(ALL_PROJECTS)
+        return new_filter
+    else:
+        # Select — add back
+        return current_filter + [clicked]
+
+
+# Clientside callback: update chart trace visibility + button dimming from filter
+app.clientside_callback(
+    """
+    function(activeProjects, equityFig, pnlFig, healthFig, metricsTimeFig) {
+        // Update trace visibility for a figure
+        function filterFig(fig, active) {
+            if (!fig || !fig.data) return fig;
+            var newFig = JSON.parse(JSON.stringify(fig));
+            for (var i = 0; i < newFig.data.length; i++) {
+                var name = newFig.data[i].name || '';
+                // COMBINED trace is always visible
+                if (name === 'COMBINED') {
+                    newFig.data[i].visible = true;
+                } else {
+                    // Match by prefix (handles "AGATE (2t)" style labels)
+                    var legendgroup = newFig.data[i].legendgroup || '';
+                    var matched = false;
+                    for (var k = 0; k < active.length; k++) {
+                        if (name === active[k] || name.indexOf(active[k]) === 0
+                            || legendgroup === active[k]) {
+                            matched = true;
+                            break;
+                        }
+                    }
+                    newFig.data[i].visible = matched;
+                }
+            }
+            return newFig;
+        }
+
+        var eq = filterFig(equityFig, activeProjects);
+        var pnl = filterFig(pnlFig, activeProjects);
+        var health = filterFig(healthFig, activeProjects);
+        var metricsTime = filterFig(metricsTimeFig, activeProjects);
+
+        // Build button styles — dim inactive projects
+        var allProjects = ['AGATE', 'BERYL', 'CITRINE', 'DIAMOND'];
+        var styles = [];
+        for (var j = 0; j < allProjects.length; j++) {
+            var isActive = activeProjects.indexOf(allProjects[j]) !== -1;
+            styles.push(isActive ? '' : 'project-toggle dimmed');
+        }
+
+        return [eq, pnl, health, metricsTime].concat(styles);
+    }
+    """,
+    [
+        Output("equity-chart", "figure"),
+        Output("pnl-chart", "figure"),
+        Output("health-chart", "figure"),
+        Output("metrics-time-chart", "figure"),
+        Output({"type": "project-toggle", "project": "AGATE"}, "className"),
+        Output({"type": "project-toggle", "project": "BERYL"}, "className"),
+        Output({"type": "project-toggle", "project": "CITRINE"}, "className"),
+        Output({"type": "project-toggle", "project": "DIAMOND"}, "className"),
+    ],
+    [
+        Input("project-filter", "data"),
+    ],
+    [
+        State("equity-chart", "figure"),
+        State("pnl-chart", "figure"),
+        State("health-chart", "figure"),
+        State("metrics-time-chart", "figure"),
+    ],
+    prevent_initial_call=True,
+)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
