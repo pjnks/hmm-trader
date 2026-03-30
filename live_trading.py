@@ -110,8 +110,14 @@ class LiveTradingEngine:
         )
         self.monitor = LiveMonitor()
 
-        # Per-ticker optimized configs (hot-loaded on each scan)
-        self.per_ticker_configs: dict = _load_per_ticker_configs()
+        # Unified vs per-ticker config mode (Sprint 9)
+        self.use_unified = getattr(config, "AGATE_USE_UNIFIED_CONFIG", False)
+        if self.use_unified:
+            self.unified_cfg = config.AGATE_UNIFIED_CONFIG
+            self.per_ticker_configs: dict = {}
+        else:
+            self.unified_cfg = None
+            self.per_ticker_configs: dict = _load_per_ticker_configs()
 
         # Multi-ticker state
         self.held_ticker: Optional[str] = None  # Polygon ticker of current position
@@ -130,7 +136,11 @@ class LiveTradingEngine:
         log.info(f"   Tickers: {len(tickers)} crypto ({', '.join(t.replace('X:','') for t in tickers[:5])}{'...' if len(tickers) > 5 else ''})")
         log.info(f"   Timeframe: {config.TIMEFRAME}")
         log.info(f"   Max notional: ${MAX_NOTIONAL:,.0f} (0.25x leverage)")
-        log.info(f"   Feature set: {config.FEATURE_SET} (per-ticker overrides: {len(self.per_ticker_configs)})")
+        if self.use_unified:
+            ucfg = self.unified_cfg
+            log.info(f"   UNIFIED CONFIG: {ucfg['feature_set']}/{ucfg['n_states']}st/{ucfg['confirmations']}cf/{ucfg['cov_type']}/{ucfg['timeframe']}")
+        else:
+            log.info(f"   Feature set: {config.FEATURE_SET} (per-ticker overrides: {len(self.per_ticker_configs)})")
         log.info(f"   Min confirmations: {config.MIN_CONFIRMATIONS} (adaptive: cf-{ADAPTIVE_CF_REDUCTION} when conf>{ADAPTIVE_CF_CONFIDENCE})")
         log.info(f"   Cooldown: {config.COOLDOWN_HOURS}h per-ticker")
 
@@ -234,20 +244,30 @@ class LiveTradingEngine:
          ticker_config: {feature_set, confirmations, timeframe, ...}}
         """
         # Hot-reload per-ticker configs each scan (allows optimizer to update without restart)
-        self.per_ticker_configs = _load_per_ticker_configs()
+        if not self.use_unified:
+            self.per_ticker_configs = _load_per_ticker_configs()
 
         signals = []
         for i, ticker in enumerate(self.tickers):
             if i > 0:
                 time.sleep(RATE_LIMIT_SECONDS)
 
-            # Get per-ticker config (or use global defaults)
-            tcfg = self.per_ticker_configs.get(ticker, {})
-            ticker_timeframe = tcfg.get("timeframe", config.TIMEFRAME)
-            ticker_feature_set = tcfg.get("feature_set", config.FEATURE_SET)
-            ticker_confirmations = tcfg.get("confirmations", config.MIN_CONFIRMATIONS)
-            ticker_cov_type = tcfg.get("cov_type", config.COV_TYPE)
-            ticker_n_states = tcfg.get("n_states", config.N_STATES)
+            # Sprint 9: unified config mode — same settings for all tickers
+            if self.use_unified:
+                ucfg = self.unified_cfg
+                ticker_timeframe = ucfg["timeframe"]
+                ticker_feature_set = ucfg["feature_set"]
+                ticker_confirmations = ucfg["confirmations"]
+                ticker_cov_type = ucfg["cov_type"]
+                ticker_n_states = ucfg["n_states"]
+            else:
+                # Legacy per-ticker config (or global defaults)
+                tcfg = self.per_ticker_configs.get(ticker, {})
+                ticker_timeframe = tcfg.get("timeframe", config.TIMEFRAME)
+                ticker_feature_set = tcfg.get("feature_set", config.FEATURE_SET)
+                ticker_confirmations = tcfg.get("confirmations", config.MIN_CONFIRMATIONS)
+                ticker_cov_type = tcfg.get("cov_type", config.COV_TYPE)
+                ticker_n_states = tcfg.get("n_states", config.N_STATES)
 
             try:
                 # Temporarily patch config for this ticker's scan
@@ -283,7 +303,8 @@ class LiveTradingEngine:
                     "timeframe": ticker_timeframe,
                     "cov_type": ticker_cov_type,
                     "n_states": ticker_n_states,
-                    "optimized": ticker in self.per_ticker_configs,
+                    "unified": self.use_unified,
+                    "optimized": (not self.use_unified) and ticker in self.per_ticker_configs,
                 }
                 signals.append(sig)
 
@@ -291,8 +312,8 @@ class LiveTradingEngine:
                 conf = sig.get("regime_confidence", 0.0)
                 confirms = sig.get("confirmations", 0)
                 signal_type = sig.get("signal", "HOLD")
-                opt_marker = "*" if ticker in self.per_ticker_configs else " "
-                log.info(f" {opt_marker}{ticker.replace('X:',''): <10} {regime: <5} conf={conf:.2f} "
+                cfg_marker = "U" if self.use_unified else ("*" if ticker in self.per_ticker_configs else " ")
+                log.info(f" {cfg_marker}{ticker.replace('X:',''): <10} {regime: <5} conf={conf:.2f} "
                          f"{confirms}/8 → {signal_type}  [{ticker_feature_set}/{ticker_timeframe}]")
 
             except Exception as e:

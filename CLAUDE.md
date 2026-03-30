@@ -149,7 +149,7 @@ Why the gap?
 - **Live Dashboard** (`live_dashboard.py`) at `http://129.158.40.51:8060` — equity curve, kill-switch status, trade table, regime panels (BULL/BEAR/CHOP badges)
 - **CITRINE Dashboard** (`citrine_dashboard.py`) at `http://129.158.40.51:8070` — portfolio equity, allocation, position health, signal frequency, kill-switch
 - **DIAMOND Dashboard** (`diamond_dashboard.py`) at `http://129.158.40.51:8080` — anomaly feed, paper trading portfolio
-- **Consolidated Dashboard** (`consolidated_dashboard.py`) at `http://129.158.40.51:8090` — all projects combined view
+- **Consolidated Dashboard** (`consolidated_dashboard.py`) at `http://129.158.40.51:8090` — retro-futuristic bento-grid overview of all projects (Swiss Design palette, glassmorphism cards, 12-column CSS Grid, JetBrains Mono font; redesigned Sprint 8)
 - **Daily Report** (`python daily_report.py`) — terminal report with maturity scores, project status (Mac-only)
 - **Check-In Dialogs** (`python daily_report.py --checkin`) — 5 macOS dialogs with live data, streak tracking (Mac-only)
 - All dashboards include HTTP `Cache-Control: no-store` headers to prevent stale browser caching
@@ -529,6 +529,7 @@ Multi-ticker rotation across 14 Coinbase derivatives. Per-ticker configs in `aga
 - `"extended_v2"`: base + `realized_vol_ratio`, `return_autocorr`, `realized_kurtosis`
 - `"full"`: extended + `candle_body_ratio`, `bb_width` (7 features — was 8, `vol_price_diverge` removed Sprint 1)
 - `"full_v2"`: extended_v2 + `candle_body_ratio`, `bb_width`, `volume_return_intensity`, `return_momentum_ratio`
+- `"atr_normalized"`: `atr_norm_return`, `atr_norm_range`, `atr_norm_volume`, `realized_vol_ratio`, `return_autocorr`, `realized_kurtosis` (6 features — ATR-normalized inputs for universal cross-asset HMM config; Sprint 8)
 
 ## CITRINE Configuration (config.py) — NDX100 Portfolio Rotation
 
@@ -674,6 +675,13 @@ Where:
   8. **DIAMOND→CITRINE mapping**: New `research/kalshi_equity_mapping.json` — maps Kalshi prediction markets to NDX100 tickers.
   - **Zombie process incident (2026-03-25/26)**: All 3 traders went zombie after file deploy (stale `__pycache__`). CITRINE missed full trading day. Fixed with `ExecStartPre` pycache clear + watchdog timer (15min).
   - **DIAMOND ML scorer fixes**: OOS-only comparison (was in-sample), Platt scaling removed at N<500, realized edge tracking, Wilson CI on win rate.
+- **Sprint 8 — ATR Features, Optimizer Penalty & Dashboard Redesign** (2026-03-30, 6 changes):
+  1. **ATR-normalized features**: 4 new functions in `src/indicators.py` — `compute_atr()`, `compute_atr_normalized_return()`, `compute_atr_normalized_range()`, `compute_atr_normalized_volume()`. New `"atr_normalized"` feature set (6 features) in `config.py`. Divides HMM inputs by ATR percentage so the model sees vol-adjusted moves — enables a single universal config across assets with wildly different volatility profiles (BTC $2000 ATR vs HBAR $0.001 ATR).
+  2. **Trade frequency penalty**: `optimize_agate_multi.py` rank_score changed from `Sharpe × consistency` to `Sharpe × consistency × log(trades)`. Penalizes low-N configs that inflate Sharpe by chance (Lo 2002 intuition: `SE(Sharpe) ≈ 1/√N`). Applied in both per-trial scoring and `_save_per_ticker_configs` config selection.
+  3. **Consolidated dashboard redesign**: Complete rewrite of `consolidated_dashboard.py` (~1000 lines). Removed `dash_bootstrap_components` dependency. Swiss Design palette (obsidian #08090c, neon-cyan #00e8ff), JetBrains Mono font, glassmorphism cards (`backdrop-filter: blur(12px)`), bento-box 12-column CSS Grid layout, staggered entrance animations, spring-physics hover effects, SVG fractalNoise texture overlay. Custom `app.index_string` HTML template.
+  4. **Dashboard CSS bug fix**: Dash 4.0 dynamically injects elements via React callbacks — CSS `animation-fill-mode: both` kept elements at `opacity: 0` (the `from` keyframe) because animations don't re-trigger on DOM insertion. Fixed by changing to `forwards`. Also fixed `body::before` z-index overlay blocking clicks, and moved Google Fonts from `@import` to `<link>` tag.
+  5. **Quant audit results** (carried from previous session): Universal param test FAILED (6/15 tickers positive with global config), beta test FAILED (3/13 tickers had alpha after market-beta adjustment), frequency test PASSED (8/10 adequate-N configs had >1.0 Sharpe). ETH and LINK are the only two tickers surviving ALL statistical tests (DSR, frequency, alpha). Per-ticker configs confirmed as necessary — universal config doesn't work across crypto assets with different microstructures.
+  6. **DIAMOND↔CITRINE bridge**: `src/diamond_bridge.py` rewritten with `CitrineDiamondBridge` class. Maps Kalshi anomalies to NDX100 equity alt-data boosts via indirect correlations (BTC→MSTR/COIN, WTI→energy, macro→all tickers). CITRINE `_fetch_alt_data_boosts()` now combines SEC insider × DIAMOND anomaly boosts multiplicatively, clamped [0.7, 1.5].
 
 ### CITRINE Optimization & Portfolio Rotation
 - **Per-ticker HMM optimization**: COMPLETE + RE-OPTIMIZED (585 trials across 100 tickers, 82 positive Sharpe — 83%)
@@ -784,7 +792,7 @@ All tunable constants. Single source of truth for parameters. Monkey-patched per
 - Cached to `model_cache.pkl`; reload with `--retrain`
 
 ### `src/indicators.py`
-Computes all 8 strategy indicators and 8 extended HMM features — no `ta` library dependency.
+Computes all 8 strategy indicators, 8 extended HMM features, and 4 ATR-normalized features — no `ta` library dependency.
 
 **Strategy indicators** (attached by `attach_all(df)`):
 `rsi`, `momentum`, `volatility`, `vol_median`, `volume_ratio`, `adx`, `price_trend_pct`, `sma_50`, `macd`, `macd_signal`, `macd_hist`, `stoch_k`, `stoch_d`
@@ -792,6 +800,14 @@ Computes all 8 strategy indicators and 8 extended HMM features — no `ta` libra
 **Extended HMM features** (computed by `attach_all`):
 `realized_vol_ratio`, `return_autocorr`, `candle_body_ratio`, `bb_width`, `realized_kurtosis`, `volume_return_intensity`, `return_momentum_ratio`
 Note: `vol_price_diverge` is still computed by `attach_all` for reference but must NOT be included in any HMM feature set — it is binary (0/1) and causes degenerate covariance matrices.
+
+**ATR-normalized features** (Sprint 8, computed by `attach_all`):
+`atr`, `atr_norm_return`, `atr_norm_range`, `atr_norm_volume`
+- `compute_atr(df, period=14)` — Average True Range via EWM (standard volatility measure)
+- `compute_atr_normalized_return(df)` — `log_return / (ATR / price)` — how many ATR units the bar moved; dimensionless across assets
+- `compute_atr_normalized_range(df)` — `(high-low)/close / (ATR/close)` — expansion vs contraction bars relative to ATR
+- `compute_atr_normalized_volume(df)` — `volume_ratio × atr_pct` — volume spike in context of volatility regime
+These features enable a universal HMM config across assets with wildly different volatility profiles (BTC $2000 ATR vs HBAR $0.001 ATR). All three are dimensionless in "ATR units" — a 2-ATR move in BTC is comparable to a 2-ATR move in HBAR.
 
 **Sprint 3 new features** (continuous, HMM-safe):
 - `compute_realized_kurtosis()` — rolling kurtosis of log returns; captures tail-risk regime differences
@@ -1155,10 +1171,11 @@ AGATE indicator threshold optimizer — fixes HMM config, varies indicator thres
 - CLI: `--ensemble` (use ensemble HMM), `--runs N`, `--resume`
 
 ### `optimize_agate_multi.py`
-AGATE multi-ticker walk-forward optimizer (Sprint 6).
+AGATE multi-ticker walk-forward optimizer (Sprint 6, updated Sprint 8).
 - Grid: 14 tickers × n_states[4,5,6] × feature_set["base","extended","extended_v2"] × confirmations[5,6,7,8] × cov_type["diag","full"] × timeframe["3h","4h"] = 2,016 combinations
 - Uses ensemble HMM in walk-forward trials (6m train / 3m test)
 - CSV schema validation (`_validate_result()`) prevents corrupt output lines
+- **Trade frequency penalty (Sprint 8)**: `rank_score = Sharpe × consistency × log(trades)` — penalizes low-N configs that may have high Sharpe by chance. Same intuition as Lo (2002) Sharpe standard error: `SE(Sharpe) ≈ 1/√N`. The `log(N)` form barely penalizes 30→50 trade difference but crushes 3→1 trade configs.
 - Auto-generates `agate_per_ticker_configs.json` with best config per crypto ticker
 - Outputs: `agate_multi_optimization_results.csv`, per-ticker best configs
 - CLI: `--runs 200` (default), `--resume`, `--heatmap-only`, `--workers N`

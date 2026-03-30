@@ -42,6 +42,13 @@ FEATURE_SETS: dict = {
         "candle_body_ratio", "bb_width",
         "realized_kurtosis", "volume_return_intensity", "return_momentum_ratio",
     ],
+    # Sprint 8: ATR-normalized features — cross-asset universal config.
+    # All inputs scaled by ATR so HMM sees vol-adjusted moves, not raw price moves.
+    # Enables single config across BTC ($2k ATR) and HBAR ($0.001 ATR).
+    "atr_normalized": [
+        "atr_norm_return", "atr_norm_range", "atr_norm_volume",
+        "realized_vol_ratio", "return_autocorr", "realized_kurtosis",
+    ],
 }
 
 # ── HMM ───────────────────────────────────────────────────────────────────────
@@ -116,7 +123,34 @@ STOCH_UPPER         = 80      # confirm if %K < STOCH_UPPER (room to run)
 INITIAL_CAPITAL     = 10_000.0
 LEVERAGE            = 1.0     # Ensemble WF winner (was 1.5; live uses 0.25× for micro-capital)
 COOLDOWN_HOURS      = 48      # Ensemble WF winner (was 72 — faster re-entry)
-TAKER_FEE           = 0.0006  # 0.06% per side (Binance-like)
+TAKER_FEE           = 0.0006  # 0.06% per side (Binance-like) — default for BTC/ETH
+
+# ── Tiered Slippage by Crypto Liquidity (Sprint 9) ───────────────────────────
+# Per-ticker transaction cost (fee + slippage) based on order book depth.
+# Altcoins have thinner books, especially at regime-flip moments (high-vol).
+# Realistic slippage prevents backtester from overstating altcoin edge.
+AGATE_TICKER_FEES = {
+    # Tier 1: Deep books — 6bps (base fee only)
+    "X:BTCUSD": 0.0006,
+    "X:ETHUSD": 0.0006,
+    # Tier 2: Decent liquidity — 9bps (1.5× base)
+    "X:SOLUSD": 0.0009,
+    "X:BCHUSD": 0.0009,
+    "X:LINKUSD": 0.0009,
+    "X:XRPUSD": 0.0009,
+    # Tier 3: Thin books — 12bps (2× base, per quant review recommendation)
+    "X:LTCUSD":  0.0012,
+    "X:SUIUSD":  0.0012,
+    "X:DOGEUSD": 0.0012,
+    "X:HBARUSD": 0.0012,
+    "X:XLMUSD":  0.0012,
+    "X:AVAXUSD": 0.0012,
+    "X:ENAUSD":  0.0012,
+}
+
+def get_ticker_fee(ticker: str) -> float:
+    """Return per-side transaction cost for a crypto ticker (fee + slippage)."""
+    return AGATE_TICKER_FEES.get(ticker, TAKER_FEE)
 
 # ── SHORT-specific overrides (multi-direction only) ─────────────────────
 # When use_regime_mapper=True, these override the shared values for SHORT.
@@ -126,12 +160,40 @@ COOLDOWN_HOURS_SHORT     = 48     # cooldown after SHORT exit (default matches L
 ADX_MIN_SHORT            = 25     # minimum ADX for SHORT entries (default matches LONG)
 
 # ── AGATE Multi-Ticker Crypto Universe ────────────────────────────────────────
+# Sprint 9 (2026-03-29): Narrowed from 14→6 based on Global Config Test.
+# Only tickers that show positive Sharpe with UNIFIED config (base/4st/5cf/diag/4h)
+# AND realistic tiered slippage survive. Per-ticker optimization was curve-fitting.
 AGATE_TICKERS = [
-    "X:BTCUSD", "X:ETHUSD", "X:SOLUSD", "X:XRPUSD", "X:LTCUSD",
-    "X:SUIUSD", "X:DOGEUSD", "X:ADAUSD", "X:BCHUSD", "X:LINKUSD",
-    "X:HBARUSD", "X:XLMUSD", "X:AVAXUSD", "X:ENAUSD",
-    # Dropped: X:SHIBUSD, X:DOTUSD — 0% positive in 179-trial optimizer (Sprint 6)
+    "X:LINKUSD",   # Sharpe +2.355, 4/5 windows, Tier 2 (9bps) — strongest
+    "X:SOLUSD",    # Sharpe +1.931, 1/2 windows, Tier 2 (9bps)
+    "X:HBARUSD",   # Sharpe +1.151, 2/5 windows, Tier 3 (12bps) — survives high fees
+    "X:BCHUSD",    # Sharpe +1.028, 3/5 windows, Tier 2 (9bps) — most consistent
+    "X:ETHUSD",    # Sharpe +0.377, 1/2 windows, Tier 1 (6bps) — marginal but liquid
+    "X:SUIUSD",    # Sharpe +0.109, 2/5 windows, Tier 3 (12bps) — barely positive, on watch
+    # ── Dropped (Sprint 9 Global Config Test — no edge with unified config) ──
+    # X:BTCUSD  — Sharpe -3.370, too efficiently arbitraged
+    # X:XRPUSD  — Sharpe -5.916, news-driven (regulatory), not regime-driven
+    # X:AVAXUSD — Sharpe -5.750, no edge survives 12bps slippage
+    # X:XLMUSD  — Sharpe -1.844, wild variance (return +35.9% but Sharpe negative)
+    # X:DOGEUSD — Sharpe -1.367, no edge at 12bps
+    # X:ENAUSD  — Sharpe -1.141, no edge at 12bps
+    # X:LTCUSD  — Sharpe -0.128, flat
+    # X:ADAUSD  — insufficient data (95d), dropped Sprint 8
+    # X:SHIBUSD, X:DOTUSD — 0% positive in optimizer, dropped Sprint 6
 ]
+
+# ── AGATE Unified Config (Sprint 9) ──────────────────────────────────────────
+# Global Config Test proved per-ticker optimization was curve-fitting.
+# Simple unified config (base/4st/5cf/diag/4h) shows real edge across all
+# surviving tickers. Do NOT use per-ticker config overrides for AGATE.
+AGATE_UNIFIED_CONFIG = {
+    "n_states": 4,
+    "feature_set": "base",
+    "confirmations": 5,
+    "cov_type": "diag",
+    "timeframe": "4h",
+}
+AGATE_USE_UNIFIED_CONFIG = True  # Set False to revert to per-ticker configs
 
 # Polygon ticker → Coinbase product ID mapping
 CRYPTO_PRODUCT_MAP = {

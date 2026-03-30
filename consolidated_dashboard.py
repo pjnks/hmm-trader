@@ -3,13 +3,10 @@ consolidated_dashboard.py
 ─────────────────────────
 Portfolio Overview — Combined view of all 4 trading sub-projects.
 
-Shows:
-  - Combined equity curve (AGATE + BERYL + CITRINE)
-  - Per-project P&L cards with rolling Sharpe
-  - Aggregate metrics (total equity, total trades, combined Sharpe)
-  - Model health indicators (degradation detection)
-  - Kill-switch status per project
-  - DIAMOND paper trading summary
+Retro-futuristic bento-box dashboard with industrial/utilitarian aesthetic.
+Deep obsidian background, neon-cyan accents, grainy glassmorphism cards,
+monospaced tabular typography, asymmetrical grid, staggered entrance
+animations, spring-physics hover states, Swiss Design muted palette.
 
 Run:
   python consolidated_dashboard.py                     # local at :8090
@@ -23,17 +20,15 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
 import dash
 from dash import html, dcc
-import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -45,8 +40,11 @@ PROJECT_DBS = {
     "CITRINE": ROOT / "citrine_trades.db",
 }
 
-# DIAMOND uses a separate repo — check both local and common locations
 DIAMOND_DB_CANDIDATES = [
+    ROOT.parent / "kalshi-diamond" / "diamond_trades.db",
+    Path("/home/ubuntu/kalshi-diamond/diamond_trades.db"),
+    ROOT.parent / "diamond" / "diamond_trades.db",
+    # Legacy fallbacks
     ROOT.parent / "kalshi-diamond" / "diamond.db",
     Path("/home/ubuntu/kalshi-diamond/diamond.db"),
     ROOT / "diamond.db",
@@ -57,25 +55,36 @@ STATUS_FILES = {
     "BERYL": ROOT / "beryl_status.json",
 }
 
-# Backtest expected Sharpe per project (for degradation detection)
 EXPECTED_SHARPE = {
-    "AGATE":   0.837,   # stability test extended_v2/7cf
-    "BERYL":   0.825,   # Phase 3 best (NVDA)
-    "CITRINE": 1.665,   # allocator optimization winner
+    "AGATE":   0.837,
+    "BERYL":   0.825,
+    "CITRINE": 1.665,
+    "DIAMOND": 0.500,
 }
 
-# ── Colours ───────────────────────────────────────────────────────────────────
-BG       = "#0d0f14"
-PANEL    = "#141820"
-BORDER   = "#1e2330"
-TEXT     = "#e0e4f0"
-TEXT_DIM = "#6b7394"
-GREEN    = "#00e676"
-RED      = "#ff1744"
-YELLOW   = "#ffea00"
-BLUE     = "#448aff"
-PURPLE   = "#e040fb"
-ORANGE   = "#ff6d00"
+# ── Swiss Design Palette ─────────────────────────────────────────────────────
+# Obsidian base with neon-cyan accent.  Muted secondaries.
+BG          = "#08090c"
+BG_RAISED   = "#0e1016"
+PANEL       = "rgba(14, 18, 26, 0.72)"
+PANEL_SOLID = "#0e121a"
+BORDER      = "rgba(0, 232, 255, 0.08)"
+BORDER_HOVER = "rgba(0, 232, 255, 0.25)"
+
+CYAN        = "#00e8ff"
+CYAN_DIM    = "rgba(0, 232, 255, 0.4)"
+CYAN_GLOW   = "rgba(0, 232, 255, 0.12)"
+
+TEXT        = "#d0d4e0"
+TEXT_DIM    = "#5a6078"
+TEXT_MUTED  = "#3a3f52"
+
+GREEN       = "#00d68f"
+RED         = "#ff3d71"
+YELLOW      = "#ffaa00"
+BLUE        = "#598bff"
+PURPLE      = "#c471f5"
+ORANGE      = "#ff8a50"
 
 PROJECT_COLORS = {
     "AGATE":   ORANGE,
@@ -84,21 +93,248 @@ PROJECT_COLORS = {
     "DIAMOND": PURPLE,
 }
 
+PROJECT_ICONS = {
+    "AGATE":   "◆",
+    "BERYL":   "◈",
+    "CITRINE": "◇",
+    "DIAMOND": "◊",
+}
+
+
+# ── Custom CSS ───────────────────────────────────────────────────────────────
+GOOGLE_FONT_URL = "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap"
+
+CUSTOM_CSS = """
+* { box-sizing: border-box; }
+
+body {
+    background: """ + BG + """;
+    margin: 0;
+    font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+}
+
+/* Grainy texture overlay — z-index:-1 so it never covers content */
+body::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: -1;
+}
+
+/* Ensure React mount point is above overlays */
+#react-entry-point {
+    position: relative;
+    z-index: 1;
+}
+
+/* Bento card glassmorphism */
+.bento-card {
+    background: """ + PANEL + """;
+    backdrop-filter: blur(12px) saturate(140%);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+    border: 1px solid """ + BORDER + """;
+    border-radius: 6px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+                border-color 0.3s ease,
+                box-shadow 0.3s ease;
+    will-change: transform;
+}
+
+.bento-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 1px;
+    background: linear-gradient(90deg, transparent, """ + CYAN_DIM + """, transparent);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.bento-card:hover {
+    transform: translateY(-2px) scale(1.005);
+    border-color: """ + BORDER_HOVER + """;
+    box-shadow: 0 8px 32px rgba(0, 232, 255, 0.06),
+                0 0 0 1px """ + BORDER_HOVER + """,
+                inset 0 1px 0 rgba(0, 232, 255, 0.05);
+}
+
+.bento-card:hover::before {
+    opacity: 1;
+}
+
+/* Staggered entrance animations */
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Note: animation fill-mode 'both' means elements start invisible (opacity:0)
+   until the animation fires.  Use 'forwards' only so elements are visible by default
+   and only animate when CSS class is applied fresh (e.g. page load). */
+.anim-1 { animation: slideUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.05s forwards; }
+.anim-2 { animation: slideUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.10s forwards; }
+.anim-3 { animation: slideUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.15s forwards; }
+.anim-4 { animation: slideUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.20s forwards; }
+.anim-5 { animation: slideUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.25s forwards; }
+.anim-6 { animation: slideUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.30s forwards; }
+.anim-7 { animation: slideUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.35s forwards; }
+.anim-8 { animation: slideUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.40s forwards; }
+
+/* Metric value styling */
+.metric-value {
+    font-size: 1.6rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+}
+
+.metric-label {
+    font-size: 0.6rem;
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: """ + TEXT_DIM + """;
+    margin-bottom: 6px;
+}
+
+.metric-sub {
+    font-size: 0.65rem;
+    color: """ + TEXT_MUTED + """;
+    margin-top: 4px;
+}
+
+/* Project name with glow */
+.project-name {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+}
+
+/* Health badge */
+.health-badge {
+    display: inline-block;
+    font-size: 0.55rem;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    padding: 2px 8px;
+    border-radius: 2px;
+    text-transform: uppercase;
+    border: 1px solid;
+}
+
+/* Scan line effect on header */
+@keyframes scanline {
+    0% { background-position: 0 0; }
+    100% { background-position: 0 100%; }
+}
+
+.header-scanline {
+    position: relative;
+}
+
+.header-scanline::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 232, 255, 0.015) 2px,
+        rgba(0, 232, 255, 0.015) 4px
+    );
+    pointer-events: none;
+    animation: scanline 8s linear infinite;
+}
+
+/* Subtle grid pattern on main container */
+.grid-bg {
+    background-image:
+        linear-gradient(""" + BORDER + """ 1px, transparent 1px),
+        linear-gradient(90deg, """ + BORDER + """ 1px, transparent 1px);
+    background-size: 60px 60px;
+    background-position: center;
+}
+
+/* Neon glow pulse for active indicators */
+@keyframes neonPulse {
+    0%, 100% { box-shadow: 0 0 4px currentColor; }
+    50% { box-shadow: 0 0 12px currentColor, 0 0 24px currentColor; }
+}
+
+.neon-pulse {
+    animation: neonPulse 3s ease-in-out infinite;
+}
+
+/* Chart container 3D depth */
+.chart-container {
+    position: relative;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.chart-container::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        180deg,
+        rgba(0, 232, 255, 0.02) 0%,
+        transparent 30%,
+        transparent 70%,
+        rgba(0, 232, 255, 0.01) 100%
+    );
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* Thin separator lines */
+.separator {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, """ + BORDER_HOVER + """, transparent);
+    margin: 4px 0 12px;
+}
+
+/* Status dot */
+.status-dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+
+/* Kill-switch indicator bar */
+.kill-bar {
+    height: 3px;
+    border-radius: 1px;
+    margin-top: 8px;
+    transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+"""
+
 
 # ── Data Loaders ──────────────────────────────────────────────────────────────
 
 def _load_trades(db_path: Path) -> pd.DataFrame:
-    """Load closed trades (with P&L) from a SQLite DB. Returns empty DataFrame on error."""
     if not db_path.exists():
         return pd.DataFrame()
     try:
         with sqlite3.connect(str(db_path)) as conn:
-            df = pd.read_sql_query(
-                "SELECT * FROM trades ORDER BY timestamp ASC", conn,
-            )
+            df = pd.read_sql_query("SELECT * FROM trades ORDER BY timestamp ASC", conn)
         if "timestamp" in df.columns:
             df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
-        # Filter to closed trades only (ENTER/SCALE_UP trades have NULL pnl)
         if "pnl" in df.columns:
             df = df.dropna(subset=["pnl"])
         return df
@@ -107,7 +343,6 @@ def _load_trades(db_path: Path) -> pd.DataFrame:
 
 
 def _load_citrine_snapshots() -> pd.DataFrame:
-    """Load CITRINE portfolio snapshots for equity curve."""
     db_path = PROJECT_DBS["CITRINE"]
     if not db_path.exists():
         return pd.DataFrame()
@@ -125,35 +360,48 @@ def _load_citrine_snapshots() -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def _load_diamond_summary() -> dict:
-    """Load DIAMOND paper trading summary. Returns empty dict if unavailable."""
+def _load_diamond_trades() -> pd.DataFrame:
+    """Load DIAMOND paper_trades, normalizing schema to match AGATE/BERYL/CITRINE.
+
+    DIAMOND uses pnl_cents (integer cents) and settled_at (Unix epoch float).
+    We convert to pnl (dollars) and timestamp (datetime) for chart compatibility.
+    """
     for candidate in DIAMOND_DB_CANDIDATES:
         if candidate.exists():
             try:
                 with sqlite3.connect(str(candidate)) as conn:
-                    # Try to get paper trade summary
-                    trades = pd.read_sql_query(
-                        "SELECT * FROM paper_trades ORDER BY timestamp DESC LIMIT 50",
-                        conn,
-                    )
-                    if trades.empty:
-                        return {"status": "active", "trades": 0, "pnl": 0.0}
-                    total_pnl = trades["pnl"].sum() if "pnl" in trades.columns else 0.0
-                    n_trades = len(trades)
-                    wins = (trades["pnl"] > 0).sum() if "pnl" in trades.columns else 0
-                    return {
-                        "status": "active",
-                        "trades": n_trades,
-                        "pnl": float(total_pnl),
-                        "win_rate": float(wins / max(n_trades, 1)),
-                    }
+                    df = pd.read_sql_query(
+                        "SELECT ticker, side, pnl_cents, settled_at "
+                        "FROM paper_trades "
+                        "WHERE pnl_cents IS NOT NULL AND settled_at IS NOT NULL "
+                        "ORDER BY settled_at ASC", conn)
+                if df.empty:
+                    return pd.DataFrame()
+                df["pnl"] = df["pnl_cents"] / 100.0
+                df["timestamp"] = pd.to_datetime(df["settled_at"], unit="s", utc=True)
+                df = df.drop(columns=["pnl_cents", "settled_at"])
+                return df
             except Exception:
-                return {"status": "active", "trades": 0, "pnl": 0.0}
-    return {"status": "no_db", "trades": 0, "pnl": 0.0}
+                return pd.DataFrame()
+    return pd.DataFrame()
+
+
+def _diamond_summary_from_trades(df: pd.DataFrame) -> dict:
+    """Build DIAMOND summary dict from normalized trades DataFrame."""
+    if df.empty or "pnl" not in df.columns:
+        return {"status": "no_db", "trades": 0, "pnl": 0.0, "win_rate": 0.0}
+    n_trades = len(df)
+    total_pnl = float(df["pnl"].sum())
+    wins = int((df["pnl"] > 0).sum())
+    return {
+        "status": "active",
+        "trades": n_trades,
+        "pnl": total_pnl,
+        "win_rate": float(wins / max(n_trades, 1)),
+    }
 
 
 def _load_status(filename: str) -> dict:
-    """Load a JSON status file."""
     path = ROOT / filename
     if not path.exists():
         return {}
@@ -165,7 +413,6 @@ def _load_status(filename: str) -> dict:
 
 
 def _rolling_sharpe(pnls: np.ndarray, window: int = 20) -> float:
-    """Compute rolling Sharpe over last N trades."""
     if len(pnls) < window:
         return 0.0
     recent = pnls[-window:]
@@ -176,14 +423,12 @@ def _rolling_sharpe(pnls: np.ndarray, window: int = 20) -> float:
 
 
 def _compute_project_metrics(project: str, trades_df: pd.DataFrame) -> dict:
-    """Compute key metrics for a single project."""
     if trades_df.empty or "pnl" not in trades_df.columns:
         return {
             "total_pnl": 0.0, "total_trades": 0, "win_rate": 0.0,
-            "sharpe_20": 0.0, "last_trade": "N/A",
+            "sharpe_20": 0.0, "last_trade": "—",
             "degradation": "unknown", "degradation_sigma": 0.0,
         }
-
     pnls = trades_df["pnl"].values.astype(float)
     total_pnl = float(np.sum(pnls))
     total_trades = len(pnls)
@@ -191,22 +436,18 @@ def _compute_project_metrics(project: str, trades_df: pd.DataFrame) -> dict:
     win_rate = wins / max(total_trades, 1)
     sharpe_20 = _rolling_sharpe(pnls, window=20)
 
-    # Last trade timestamp
-    last_ts = trades_df["timestamp"].iloc[-1] if not trades_df.empty else "N/A"
+    last_ts = trades_df["timestamp"].iloc[-1] if not trades_df.empty else "—"
     if isinstance(last_ts, pd.Timestamp):
-        last_trade = last_ts.strftime("%Y-%m-%d %H:%M")
+        last_trade = last_ts.strftime("%m-%d %H:%M")
     else:
         last_trade = str(last_ts)[:16]
 
-    # Model degradation detection
     expected = EXPECTED_SHARPE.get(project, 1.0)
     degradation = "unknown"
     degradation_sigma = 0.0
 
     if total_trades >= 10:
-        # Compare rolling Sharpe vs expected backtest Sharpe
-        # Scale expected Sharpe down by typical backtest-to-live degradation (75-90%)
-        live_expected = expected * 0.15  # expect 15% of backtest Sharpe in live
+        live_expected = expected * 0.15
         if live_expected > 0:
             degradation_sigma = (sharpe_20 - live_expected) / max(abs(live_expected) * 0.5, 0.1)
             if degradation_sigma < -2.0:
@@ -221,131 +462,69 @@ def _compute_project_metrics(project: str, trades_df: pd.DataFrame) -> dict:
         degradation = "too_early"
 
     return {
-        "total_pnl": total_pnl,
-        "total_trades": total_trades,
-        "win_rate": win_rate,
-        "sharpe_20": sharpe_20,
-        "last_trade": last_trade,
-        "degradation": degradation,
-        "degradation_sigma": degradation_sigma,
+        "total_pnl": total_pnl, "total_trades": total_trades, "win_rate": win_rate,
+        "sharpe_20": sharpe_20, "last_trade": last_trade,
+        "degradation": degradation, "degradation_sigma": degradation_sigma,
     }
 
 
-# ── Dashboard Components ──────────────────────────────────────────────────────
+# ── Chart Builders ────────────────────────────────────────────────────────────
 
-CARD_STYLE = {
-    "backgroundColor": PANEL,
-    "border": f"1px solid {BORDER}",
-    "borderRadius": "8px",
-    "padding": "16px",
-    "marginBottom": "12px",
-    "fontFamily": "monospace",
-}
-
-
-def _metric_card(label: str, value: str, color: str = TEXT, sublabel: str = "") -> html.Div:
-    """Single metric card."""
-    children = [
-        html.Div(label, style={"color": TEXT_DIM, "fontSize": "0.7rem", "textTransform": "uppercase"}),
-        html.Div(value, style={"color": color, "fontSize": "1.4rem", "fontWeight": "bold"}),
-    ]
-    if sublabel:
-        children.append(
-            html.Div(sublabel, style={"color": TEXT_DIM, "fontSize": "0.7rem"})
-        )
-    return html.Div(children, style=CARD_STYLE)
-
-
-def _project_card(project: str, metrics: dict) -> dbc.Col:
-    """Card for a single project with key metrics."""
-    color = PROJECT_COLORS.get(project, TEXT)
-    pnl = metrics["total_pnl"]
-    pnl_color = GREEN if pnl >= 0 else RED
-
-    # Degradation badge
-    deg = metrics["degradation"]
-    deg_colors = {"healthy": GREEN, "warning": YELLOW, "critical": RED,
-                  "insufficient_data": TEXT_DIM, "too_early": TEXT_DIM, "unknown": TEXT_DIM}
-    deg_labels = {"healthy": "HEALTHY", "warning": "DRIFT", "critical": "DEGRADED",
-                  "insufficient_data": "COLLECTING", "too_early": "TOO EARLY", "unknown": "?"}
-    deg_color = deg_colors.get(deg, TEXT_DIM)
-    deg_label = deg_labels.get(deg, "?")
-
-    return dbc.Col(
-        html.Div([
-            html.Div([
-                html.Span(project, style={"color": color, "fontSize": "1.1rem", "fontWeight": "bold"}),
-                html.Span(f"  {deg_label}", style={"color": deg_color, "fontSize": "0.7rem",
-                                                      "border": f"1px solid {deg_color}",
-                                                      "borderRadius": "4px", "padding": "2px 6px",
-                                                      "marginLeft": "8px"}),
-            ]),
-            html.Hr(style={"borderColor": BORDER, "margin": "8px 0"}),
-            html.Div([
-                html.Span("P&L: ", style={"color": TEXT_DIM}),
-                html.Span(f"${pnl:+,.2f}", style={"color": pnl_color, "fontWeight": "bold"}),
-            ]),
-            html.Div([
-                html.Span("Trades: ", style={"color": TEXT_DIM}),
-                html.Span(f"{metrics['total_trades']}", style={"color": TEXT}),
-                html.Span(f"  WR: {metrics['win_rate']:.0%}", style={"color": TEXT_DIM, "marginLeft": "12px"}),
-            ]),
-            html.Div([
-                html.Span("Sharpe(20): ", style={"color": TEXT_DIM}),
-                html.Span(f"{metrics['sharpe_20']:.3f}",
-                          style={"color": GREEN if metrics['sharpe_20'] > 0.3 else
-                                 (YELLOW if metrics['sharpe_20'] > 0 else RED)}),
-            ]),
-            html.Div([
-                html.Span("Last: ", style={"color": TEXT_DIM}),
-                html.Span(metrics["last_trade"], style={"color": TEXT_DIM, "fontSize": "0.75rem"}),
-            ]),
-        ], style=CARD_STYLE),
-        md=3, sm=6,
-    )
+CHART_LAYOUT = dict(
+    template="plotly_dark",
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(0,0,0,0)",
+    font=dict(family="JetBrains Mono, monospace", color=TEXT_DIM, size=10),
+    margin=dict(l=48, r=16, t=36, b=32),
+    legend=dict(
+        orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+        font=dict(size=9, color=TEXT_DIM),
+        bgcolor="rgba(0,0,0,0)",
+    ),
+    xaxis=dict(
+        gridcolor="rgba(0, 232, 255, 0.04)", gridwidth=1,
+        zerolinecolor="rgba(0, 232, 255, 0.06)",
+        tickfont=dict(size=9),
+    ),
+    yaxis=dict(
+        gridcolor="rgba(0, 232, 255, 0.04)", gridwidth=1,
+        zerolinecolor="rgba(0, 232, 255, 0.06)",
+        tickfont=dict(size=9),
+    ),
+)
 
 
-def _build_equity_chart(all_trades: dict[str, pd.DataFrame], snapshots: pd.DataFrame) -> go.Figure:
-    """Build combined equity chart across all projects."""
+def _build_equity_chart(all_trades: dict[str, pd.DataFrame],
+                        snapshots: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
     fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor=BG,
-        plot_bgcolor=BG,
-        font=dict(family="monospace", color=TEXT),
-        title="Combined Equity Curve",
-        xaxis_title="Date",
-        yaxis_title="Cumulative P&L ($)",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=60, r=20, t=60, b=40),
-        height=400,
+        **CHART_LAYOUT,
+        title=dict(text="EQUITY CURVE", font=dict(size=10, color=TEXT_DIM)),
+        height=280,
+        yaxis_title=dict(text="P&L ($)", font=dict(size=9)),
     )
 
-    # CITRINE uses snapshots (portfolio-level equity)
+    # CITRINE from snapshots
     if not snapshots.empty and "total_equity" in snapshots.columns:
+        y = snapshots["total_equity"] - 25000
         fig.add_trace(go.Scatter(
-            x=snapshots["timestamp"],
-            y=snapshots["total_equity"] - 25000,  # relative to starting capital
-            name="CITRINE",
-            line=dict(color=PROJECT_COLORS["CITRINE"], width=2),
+            x=snapshots["timestamp"], y=y,
+            name="CITRINE", line=dict(color=GREEN, width=1.5),
+            fill="tozeroy", fillcolor="rgba(0, 214, 143, 0.05)",
         ))
 
-    # AGATE and BERYL use cumulative P&L from trades
-    for project in ["AGATE", "BERYL"]:
+    # AGATE / BERYL / DIAMOND from cumulative P&L
+    for project in ["AGATE", "BERYL", "DIAMOND"]:
         df = all_trades.get(project, pd.DataFrame())
         if df.empty or "pnl" not in df.columns:
             continue
         df = df.sort_values("timestamp")
-        cum_pnl = df["pnl"].cumsum()
         fig.add_trace(go.Scatter(
-            x=df["timestamp"],
-            y=cum_pnl,
-            name=project,
-            line=dict(color=PROJECT_COLORS[project], width=2),
+            x=df["timestamp"], y=df["pnl"].cumsum(),
+            name=project, line=dict(color=PROJECT_COLORS[project], width=1.5),
         ))
 
-    # Combined total line
-    # Build a daily combined P&L
+    # Combined
     all_pnl_series = []
     for project, df in all_trades.items():
         if df.empty or "pnl" not in df.columns:
@@ -357,80 +536,322 @@ def _build_equity_chart(all_trades: dict[str, pd.DataFrame], snapshots: pd.DataF
         combined = pd.concat(all_pnl_series, axis=1).fillna(0).sum(axis=1).cumsum()
         if not combined.empty:
             fig.add_trace(go.Scatter(
-                x=combined.index,
-                y=combined.values,
-                name="COMBINED",
-                line=dict(color=TEXT, width=3, dash="dot"),
+                x=combined.index, y=combined.values,
+                name="COMBINED", line=dict(color=CYAN, width=2, dash="dot"),
             ))
 
     return fig
 
 
 def _build_degradation_chart(all_trades: dict[str, pd.DataFrame]) -> go.Figure:
-    """Build model health chart — rolling Sharpe vs expected for each project."""
     fig = go.Figure()
     fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor=BG,
-        plot_bgcolor=BG,
-        font=dict(family="monospace", color=TEXT),
-        title="Model Health — Rolling 10-Trade Sharpe",
-        xaxis_title="Trade #",
-        yaxis_title="Sharpe Ratio",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=60, r=20, t=60, b=40),
-        height=300,
+        **CHART_LAYOUT,
+        title=dict(text="MODEL HEALTH  —  ROLLING 10-TRADE SHARPE", font=dict(size=10, color=TEXT_DIM)),
+        height=220,
+        yaxis_title=dict(text="Sharpe", font=dict(size=9)),
     )
 
     for project, df in all_trades.items():
         if df.empty or "pnl" not in df.columns or len(df) < 5:
             continue
         pnls = df.sort_values("timestamp")["pnl"].values.astype(float)
-        rolling = []
         window = 10
+        rolling = []
         for i in range(window, len(pnls) + 1):
             chunk = pnls[i - window:i]
             std = np.std(chunk)
-            s = float(np.mean(chunk) / std) if std > 1e-9 else 0.0
-            rolling.append(s)
+            rolling.append(float(np.mean(chunk) / std) if std > 1e-9 else 0.0)
 
         if rolling:
             fig.add_trace(go.Scatter(
-                x=list(range(window, len(pnls) + 1)),
-                y=rolling,
-                name=project,
-                line=dict(color=PROJECT_COLORS[project], width=2),
+                x=list(range(window, len(pnls) + 1)), y=rolling,
+                name=project, line=dict(color=PROJECT_COLORS[project], width=1.5),
             ))
 
-    # Add warning threshold line
-    fig.add_hline(y=0, line=dict(color=RED, width=1, dash="dash"), annotation_text="Break-even")
+    fig.add_hline(y=0, line=dict(color="rgba(255, 61, 113, 0.3)", width=1, dash="dash"))
 
     return fig
+
+
+def _build_pnl_distribution(all_trades: dict[str, pd.DataFrame]) -> go.Figure:
+    """Histogram of P&L across all projects."""
+    fig = go.Figure()
+    fig.update_layout(
+        **CHART_LAYOUT,
+        title=dict(text="P&L DISTRIBUTION", font=dict(size=10, color=TEXT_DIM)),
+        height=200,
+        barmode="overlay",
+        yaxis_title=dict(text="Count", font=dict(size=9)),
+        xaxis_title=dict(text="P&L ($)", font=dict(size=9)),
+    )
+
+    for project, df in all_trades.items():
+        if df.empty or "pnl" not in df.columns:
+            continue
+        fig.add_trace(go.Histogram(
+            x=df["pnl"].values,
+            name=project,
+            marker_color=PROJECT_COLORS[project],
+            opacity=0.6,
+            nbinsx=20,
+        ))
+
+    return fig
+
+
+# ── Dashboard Components ──────────────────────────────────────────────────────
+
+def _metric_cell(label: str, value: str, color: str = TEXT,
+                 sub: str = "", anim: int = 1) -> html.Div:
+    """Single metric in a bento cell."""
+    children = [
+        html.Div(label, className="metric-label"),
+        html.Div(value, className="metric-value", style={"color": color}),
+    ]
+    if sub:
+        children.append(html.Div(sub, className="metric-sub"))
+    return html.Div(children, className=f"bento-card anim-{anim}",
+                    style={"height": "100%"})
+
+
+def _project_panel(project: str, metrics: dict, status: dict,
+                   anim: int = 1) -> html.Div:
+    """Full project panel — bento card with name, regime, metrics."""
+    color = PROJECT_COLORS.get(project, TEXT)
+    icon = PROJECT_ICONS.get(project, "●")
+    pnl = metrics["total_pnl"]
+    pnl_color = GREEN if pnl >= 0 else RED
+
+    # Degradation
+    deg = metrics["degradation"]
+    deg_map = {
+        "healthy": (GREEN, "NOMINAL"),
+        "warning": (YELLOW, "DRIFT"),
+        "critical": (RED, "DEGRADED"),
+        "insufficient_data": (TEXT_DIM, "COLLECTING"),
+        "too_early": (TEXT_MUTED, "PENDING"),
+        "unknown": (TEXT_MUTED, "—"),
+    }
+    deg_color, deg_label = deg_map.get(deg, (TEXT_MUTED, "?"))
+
+    # Regime from status
+    regime = status.get("regime", "—").upper()
+    confidence = status.get("confidence", 0.0)
+    signal = status.get("signal", "—")
+
+    regime_colors = {"BULL": GREEN, "BEAR": RED, "CHOP": YELLOW}
+    r_color = TEXT_DIM
+    for key, c in regime_colors.items():
+        if key in regime:
+            r_color = c
+            break
+
+    signal_colors = {"BUY": GREEN, "SELL": RED, "HOLD": TEXT_DIM, "SHORT": PURPLE}
+    s_color = signal_colors.get(signal, TEXT_DIM)
+
+    # Kill-switch bar — green if healthy
+    kill_bar_color = GREEN if deg in ("healthy", "too_early", "unknown", "insufficient_data") else RED
+    kill_bar_width = "100%" if deg != "critical" else "30%"
+
+    return html.Div([
+        # Header row
+        html.Div([
+            html.Span(f"{icon} ", style={"color": color, "fontSize": "0.9rem"}),
+            html.Span(project, className="project-name", style={"color": color}),
+            html.Span(deg_label, className="health-badge",
+                      style={"color": deg_color, "borderColor": deg_color,
+                             "marginLeft": "auto", "float": "right"}),
+        ], style={"display": "flex", "alignItems": "center"}),
+
+        html.Div(className="separator"),
+
+        # Regime line
+        html.Div([
+            html.Span(regime, style={
+                "color": r_color, "fontWeight": "600", "fontSize": "0.85rem",
+                "letterSpacing": "0.05em",
+            }),
+            html.Span(f"  {confidence:.0%}", style={"color": TEXT_DIM, "fontSize": "0.7rem"}),
+            html.Span(f"  {signal}", style={
+                "color": s_color, "fontWeight": "500", "fontSize": "0.7rem",
+                "marginLeft": "12px",
+            }),
+        ], style={"marginBottom": "12px"}) if regime != "—" else html.Div(),
+
+        # Metrics grid (2x2)
+        html.Div([
+            html.Div([
+                html.Div("P&L", className="metric-label"),
+                html.Div(f"${pnl:+,.2f}", style={
+                    "color": pnl_color, "fontSize": "1.1rem", "fontWeight": "600",
+                    "fontVariantNumeric": "tabular-nums",
+                }),
+            ], style={"flex": "1"}),
+            html.Div([
+                html.Div("TRADES", className="metric-label"),
+                html.Div(str(metrics["total_trades"]), style={
+                    "color": TEXT, "fontSize": "1.1rem", "fontWeight": "600",
+                    "fontVariantNumeric": "tabular-nums",
+                }),
+            ], style={"flex": "1"}),
+        ], style={"display": "flex", "gap": "16px", "marginBottom": "8px"}),
+
+        html.Div([
+            html.Div([
+                html.Div("WIN RATE", className="metric-label"),
+                html.Div(f"{metrics['win_rate']:.0%}", style={
+                    "color": GREEN if metrics["win_rate"] > 0.5 else
+                             (YELLOW if metrics["win_rate"] > 0.4 else RED),
+                    "fontSize": "1.1rem", "fontWeight": "600",
+                    "fontVariantNumeric": "tabular-nums",
+                }),
+            ], style={"flex": "1"}),
+            html.Div([
+                html.Div("SHARPE(20)", className="metric-label"),
+                html.Div(f"{metrics['sharpe_20']:.3f}", style={
+                    "color": GREEN if metrics["sharpe_20"] > 0.3 else
+                             (YELLOW if metrics["sharpe_20"] > 0 else RED),
+                    "fontSize": "1.1rem", "fontWeight": "600",
+                    "fontVariantNumeric": "tabular-nums",
+                }),
+            ], style={"flex": "1"}),
+        ], style={"display": "flex", "gap": "16px", "marginBottom": "8px"}),
+
+        # Last trade
+        html.Div([
+            html.Span("LAST  ", style={"color": TEXT_MUTED, "fontSize": "0.6rem"}),
+            html.Span(metrics["last_trade"], style={"color": TEXT_DIM, "fontSize": "0.65rem"}),
+        ]),
+
+        # Kill-switch bar
+        html.Div(style={
+            "width": kill_bar_width, "height": "2px",
+            "background": kill_bar_color, "borderRadius": "1px",
+            "marginTop": "10px", "opacity": "0.6",
+            "transition": "width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)",
+        }),
+
+    ], className=f"bento-card anim-{anim}")
+
+
+def _diamond_panel(summary: dict, anim: int = 5) -> html.Div:
+    """DIAMOND project panel (different data structure)."""
+    status = summary.get("status", "unknown")
+    trades = summary.get("trades", 0)
+    pnl = summary.get("pnl", 0)
+    win_rate = summary.get("win_rate", 0)
+
+    return html.Div([
+        html.Div([
+            html.Span(f"{PROJECT_ICONS['DIAMOND']} ", style={"color": PURPLE, "fontSize": "0.9rem"}),
+            html.Span("DIAMOND", className="project-name", style={"color": PURPLE}),
+            html.Span("PAPER", className="health-badge",
+                      style={"color": TEXT_DIM, "borderColor": TEXT_DIM,
+                             "marginLeft": "auto", "float": "right"}),
+        ], style={"display": "flex", "alignItems": "center"}),
+
+        html.Div(className="separator"),
+
+        html.Div([
+            html.Span("●" if status == "active" else "○",
+                      style={"color": GREEN if status == "active" else RED,
+                             "marginRight": "6px"}),
+            html.Span(status.upper(), style={"color": TEXT_DIM, "fontSize": "0.7rem",
+                                              "letterSpacing": "0.1em"}),
+        ], style={"marginBottom": "12px"}),
+
+        html.Div([
+            html.Div([
+                html.Div("P&L", className="metric-label"),
+                html.Div(f"${pnl:+,.2f}", style={
+                    "color": GREEN if pnl >= 0 else RED,
+                    "fontSize": "1.1rem", "fontWeight": "600",
+                    "fontVariantNumeric": "tabular-nums",
+                }),
+            ], style={"flex": "1"}),
+            html.Div([
+                html.Div("TRADES", className="metric-label"),
+                html.Div(str(trades), style={
+                    "color": TEXT, "fontSize": "1.1rem", "fontWeight": "600",
+                    "fontVariantNumeric": "tabular-nums",
+                }),
+            ], style={"flex": "1"}),
+            html.Div([
+                html.Div("WIN RATE", className="metric-label"),
+                html.Div(f"{win_rate:.0%}", style={
+                    "color": GREEN if win_rate > 0.5 else (YELLOW if win_rate > 0.4 else RED),
+                    "fontSize": "1.1rem", "fontWeight": "600",
+                    "fontVariantNumeric": "tabular-nums",
+                }),
+            ], style={"flex": "1"}),
+        ], style={"display": "flex", "gap": "16px"}),
+
+    ], className=f"bento-card anim-{anim}")
 
 
 # ── Dash App ──────────────────────────────────────────────────────────────────
 
 app = dash.Dash(
     __name__,
-    external_stylesheets=[dbc.themes.DARKLY],
-    title="HMM Trader — Portfolio Overview",
+    title="HMM TRADER // PORTFOLIO",
 )
+
+# Inject custom CSS + font
+app.index_string = """<!DOCTYPE html>
+<html>
+<head>
+    {%metas%}
+    <title>{%title%}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href=\"""" + GOOGLE_FONT_URL + """\" rel="stylesheet">
+    {%css%}
+    <style>""" + CUSTOM_CSS + """</style>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+    {%app_entry%}
+    <footer>{%config%}{%scripts%}{%renderer%}</footer>
+</body>
+</html>"""
 
 
 @app.server.after_request
 def add_no_cache_headers(response):
-    """Prevent stale browser caching."""
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return response
 
 
 app.layout = html.Div([
-    dcc.Interval(id="refresh", interval=60_000),  # 60s auto-refresh
-    html.H1("HMM TRADER — PORTFOLIO OVERVIEW",
-            style={"textAlign": "center", "color": TEXT, "fontFamily": "monospace",
-                   "fontSize": "1.2rem", "padding": "16px 0 8px"}),
+    dcc.Interval(id="refresh", interval=60_000),
+
+    # Header
+    html.Div([
+        html.Div([
+            html.Span("HMM TRADER", style={
+                "color": CYAN, "fontSize": "0.8rem", "fontWeight": "700",
+                "letterSpacing": "0.3em",
+            }),
+            html.Span("  //  ", style={"color": TEXT_MUTED}),
+            html.Span("PORTFOLIO OVERVIEW", style={
+                "color": TEXT_DIM, "fontSize": "0.8rem", "fontWeight": "300",
+                "letterSpacing": "0.2em",
+            }),
+        ], style={"textAlign": "center", "padding": "20px 0 4px"}),
+        html.Div(style={
+            "height": "1px", "margin": "0 auto",
+            "width": "200px",
+            "background": f"linear-gradient(90deg, transparent, {CYAN_DIM}, transparent)",
+        }),
+    ], className="header-scanline"),
+
     html.Div(id="dashboard-content"),
-], style={"backgroundColor": BG, "minHeight": "100vh", "padding": "0 20px 20px"})
+], style={
+    "minHeight": "100vh",
+    "padding": "0 24px 40px",
+    "maxWidth": "1400px",
+    "margin": "0 auto",
+}, className="grid-bg")
 
 
 @app.callback(
@@ -438,7 +859,18 @@ app.layout = html.Div([
     Input("refresh", "n_intervals"),
 )
 def update_dashboard(_):
-    """Rebuild dashboard on every refresh."""
+    import traceback as _tb
+    try:
+        return _update_dashboard_inner()
+    except Exception as e:
+        return [html.Pre(
+            f"CALLBACK ERROR:\n{_tb.format_exc()}",
+            style={"color": RED, "fontSize": "0.8rem", "padding": "20px",
+                   "whiteSpace": "pre-wrap", "fontFamily": "monospace"},
+        )]
+
+
+def _update_dashboard_inner():
     # Load all data
     all_trades = {}
     all_metrics = {}
@@ -447,15 +879,22 @@ def update_dashboard(_):
         all_trades[project] = df
         all_metrics[project] = _compute_project_metrics(project, df)
 
-    snapshots = _load_citrine_snapshots()
-    diamond_summary = _load_diamond_summary()
+    # DIAMOND: separate DB + schema, normalized into same pipeline
+    diamond_df = _load_diamond_trades()
+    all_trades["DIAMOND"] = diamond_df
+    all_metrics["DIAMOND"] = _compute_project_metrics("DIAMOND", diamond_df)
 
-    # ── Aggregate metrics ─────────────────────────────────────────────────
+    snapshots = _load_citrine_snapshots()
+    diamond_summary = _diamond_summary_from_trades(diamond_df)
+
+    agate_status = _load_status("agate_status.json")
+    beryl_status = _load_status("beryl_status.json")
+
+    # Aggregates
     total_pnl = sum(m["total_pnl"] for m in all_metrics.values())
     total_trades = sum(m["total_trades"] for m in all_metrics.values())
     active_projects = sum(1 for m in all_metrics.values() if m["total_trades"] > 0)
 
-    # Combined Sharpe from all trades
     all_pnls = np.concatenate([
         df["pnl"].values.astype(float)
         for df in all_trades.values()
@@ -463,147 +902,167 @@ def update_dashboard(_):
     ]) if any(not df.empty and "pnl" in df.columns for df in all_trades.values()) else np.array([])
     combined_sharpe = _rolling_sharpe(all_pnls, window=20)
 
-    # CITRINE equity
     citrine_equity = 0.0
     if not snapshots.empty and "total_equity" in snapshots.columns:
         citrine_equity = float(snapshots["total_equity"].iloc[-1])
 
-    # Degradation summary
-    degraded_count = sum(1 for m in all_metrics.values() if m["degradation"] == "critical")
-    warning_count = sum(1 for m in all_metrics.values() if m["degradation"] == "warning")
-    health_color = RED if degraded_count > 0 else (YELLOW if warning_count > 0 else GREEN)
-    health_label = (f"{degraded_count} DEGRADED" if degraded_count > 0
-                    else f"{warning_count} DRIFT" if warning_count > 0
-                    else "ALL HEALTHY")
+    degraded = sum(1 for m in all_metrics.values() if m["degradation"] == "critical")
+    warnings = sum(1 for m in all_metrics.values() if m["degradation"] == "warning")
+    health_color = RED if degraded > 0 else (YELLOW if warnings > 0 else GREEN)
+    health_label = (f"{degraded} DEGRADED" if degraded > 0
+                    else f"{warnings} DRIFT" if warnings > 0
+                    else "NOMINAL")
 
-    # ── Build layout ──────────────────────────────────────────────────────
-    now_str = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    now_str = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d  %H:%M UTC")
 
-    content = [
-        # Top row: aggregate metrics
-        dbc.Row([
-            dbc.Col(_metric_card("Combined P&L", f"${total_pnl:+,.2f}",
-                                 GREEN if total_pnl >= 0 else RED), md=2),
-            dbc.Col(_metric_card("CITRINE Equity", f"${citrine_equity:,.0f}",
-                                 GREEN if citrine_equity >= 25000 else RED,
-                                 f"started $25,000"), md=2),
-            dbc.Col(_metric_card("Total Trades", str(total_trades), TEXT,
-                                 f"{active_projects}/4 projects active"), md=2),
-            dbc.Col(_metric_card("Combined Sharpe(20)", f"{combined_sharpe:.3f}",
-                                 GREEN if combined_sharpe > 0.3 else
-                                 (YELLOW if combined_sharpe > 0 else RED)), md=2),
-            dbc.Col(_metric_card("Model Health", health_label, health_color), md=2),
-            dbc.Col(_metric_card("Updated", now_str, TEXT_DIM, "auto-refresh 60s"), md=2),
-        ], className="mb-3"),
+    # ── Bento Layout ─────────────────────────────────────────────────────
 
-        # Project cards
-        dbc.Row([
-            _project_card(project, metrics)
-            for project, metrics in all_metrics.items()
-        ] + [
-            # DIAMOND card (separate structure)
-            dbc.Col(
-                html.Div([
-                    html.Div([
-                        html.Span("DIAMOND", style={"color": PURPLE, "fontSize": "1.1rem", "fontWeight": "bold"}),
-                        html.Span("  PAPER", style={"color": TEXT_DIM, "fontSize": "0.7rem",
-                                                      "border": f"1px solid {TEXT_DIM}",
-                                                      "borderRadius": "4px", "padding": "2px 6px",
-                                                      "marginLeft": "8px"}),
-                    ]),
-                    html.Hr(style={"borderColor": BORDER, "margin": "8px 0"}),
-                    html.Div([
-                        html.Span("Status: ", style={"color": TEXT_DIM}),
-                        html.Span(diamond_summary.get("status", "unknown").upper(),
-                                  style={"color": GREEN if diamond_summary.get("status") == "active" else RED}),
-                    ]),
-                    html.Div([
-                        html.Span("Trades: ", style={"color": TEXT_DIM}),
-                        html.Span(str(diamond_summary.get("trades", 0)), style={"color": TEXT}),
-                    ]),
-                    html.Div([
-                        html.Span("P&L: ", style={"color": TEXT_DIM}),
-                        html.Span(f"${diamond_summary.get('pnl', 0):+,.2f}",
-                                  style={"color": GREEN if diamond_summary.get("pnl", 0) >= 0 else RED}),
-                    ]),
-                ], style=CARD_STYLE),
-                md=3, sm=6,
-            ),
-        ], className="mb-3"),
+    # Row 1: Key metrics — asymmetric widths
+    metrics_row = html.Div([
+        html.Div(
+            _metric_cell("COMBINED P&L", f"${total_pnl:+,.2f}",
+                         GREEN if total_pnl >= 0 else RED, anim=1),
+            style={"gridColumn": "span 3"},
+        ),
+        html.Div(
+            _metric_cell("CITRINE EQUITY", f"${citrine_equity:,.0f}",
+                         GREEN if citrine_equity >= 25000 else RED,
+                         sub="from $25,000", anim=2),
+            style={"gridColumn": "span 3"},
+        ),
+        html.Div(
+            _metric_cell("TOTAL TRADES", str(total_trades), TEXT,
+                         sub=f"{active_projects}/{len(all_metrics)} active", anim=3),
+            style={"gridColumn": "span 2"},
+        ),
+        html.Div(
+            _metric_cell("SHARPE(20)", f"{combined_sharpe:.3f}",
+                         GREEN if combined_sharpe > 0.3 else
+                         (YELLOW if combined_sharpe > 0 else RED), anim=4),
+            style={"gridColumn": "span 2"},
+        ),
+        html.Div(
+            _metric_cell("SYSTEM HEALTH", health_label, health_color, anim=5),
+            style={"gridColumn": "span 2"},
+        ),
+    ], style={
+        "display": "grid",
+        "gridTemplateColumns": "repeat(12, 1fr)",
+        "gap": "10px",
+        "marginTop": "20px",
+        "marginBottom": "10px",
+    })
 
-        # Charts
-        dbc.Row([
-            dbc.Col(
+    # Row 2: Project panels — bento grid (asymmetric)
+    projects_row = html.Div([
+        html.Div(
+            _project_panel("AGATE", all_metrics["AGATE"], agate_status, anim=2),
+            style={"gridColumn": "span 3"},
+        ),
+        html.Div(
+            _project_panel("BERYL", all_metrics["BERYL"], beryl_status, anim=3),
+            style={"gridColumn": "span 3"},
+        ),
+        html.Div(
+            _project_panel("CITRINE", all_metrics["CITRINE"], {}, anim=4),
+            style={"gridColumn": "span 3"},
+        ),
+        html.Div(
+            _diamond_panel(diamond_summary, anim=5),
+            style={"gridColumn": "span 3"},
+        ),
+    ], style={
+        "display": "grid",
+        "gridTemplateColumns": "repeat(12, 1fr)",
+        "gap": "10px",
+        "marginBottom": "10px",
+    })
+
+    # Row 3: Charts — asymmetric split (8/4)
+    charts_row = html.Div([
+        html.Div([
+            html.Div(
                 dcc.Graph(figure=_build_equity_chart(all_trades, snapshots),
-                          config={"displayModeBar": False}),
-                md=12,
+                          config={"displayModeBar": False},
+                          style={"height": "280px"}),
+                className="chart-container",
             ),
-        ], className="mb-3"),
+        ], className="bento-card anim-6", style={"gridColumn": "span 8"}),
 
-        dbc.Row([
-            dbc.Col(
+        html.Div([
+            html.Div(
+                dcc.Graph(figure=_build_pnl_distribution(all_trades),
+                          config={"displayModeBar": False},
+                          style={"height": "280px"}),
+                className="chart-container",
+            ),
+        ], className="bento-card anim-7", style={"gridColumn": "span 4"}),
+    ], style={
+        "display": "grid",
+        "gridTemplateColumns": "repeat(12, 1fr)",
+        "gap": "10px",
+        "marginBottom": "10px",
+    })
+
+    # Row 4: Model health + timestamp
+    bottom_row = html.Div([
+        html.Div([
+            html.Div(
                 dcc.Graph(figure=_build_degradation_chart(all_trades),
-                          config={"displayModeBar": False}),
-                md=12,
+                          config={"displayModeBar": False},
+                          style={"height": "220px"}),
+                className="chart-container",
             ),
-        ], className="mb-3"),
+        ], className="bento-card anim-8", style={"gridColumn": "span 9"}),
 
-        # Regime status panels (AGATE + BERYL)
-        dbc.Row([
-            dbc.Col([
-                html.H6("AGATE Regime", style={"color": ORANGE, "fontFamily": "monospace"}),
-                _regime_status_mini("AGATE", _load_status("agate_status.json")),
-            ], md=6),
-            dbc.Col([
-                html.H6("BERYL Regime", style={"color": BLUE, "fontFamily": "monospace"}),
-                _regime_status_mini("BERYL", _load_status("beryl_status.json")),
-            ], md=6),
-        ], className="mb-3"),
-    ]
+        html.Div([
+            html.Div("SYSTEM STATUS", className="metric-label",
+                     style={"marginBottom": "12px"}),
 
-    return content
+            # Per-project status dots
+            *[html.Div([
+                html.Span("●", className="status-dot", style={
+                    "backgroundColor": GREEN if m["degradation"] not in ("critical",) else RED,
+                }),
+                html.Span(p, style={"color": PROJECT_COLORS[p], "fontSize": "0.7rem",
+                                     "fontWeight": "600", "letterSpacing": "0.1em"}),
+                html.Span(f"  {m['total_trades']}t", style={
+                    "color": TEXT_MUTED, "fontSize": "0.6rem", "marginLeft": "4px"}),
+            ], style={"marginBottom": "6px"})
+              for p, m in all_metrics.items()],
 
+            html.Div(style={"height": "1px", "background": BORDER, "margin": "12px 0"}),
 
-def _regime_status_mini(name: str, status: dict) -> html.Div:
-    """Compact regime status panel."""
-    if not status:
-        return html.Div(f"Waiting for {name} status...",
-                        style={"color": TEXT_DIM, "fontSize": "0.8rem", **CARD_STYLE})
+            # Timestamp
+            html.Div([
+                html.Div("UPDATED", className="metric-label"),
+                html.Div(now_str, style={
+                    "color": TEXT_DIM, "fontSize": "0.7rem",
+                    "fontVariantNumeric": "tabular-nums",
+                }),
+                html.Div("auto-refresh 60s", className="metric-sub"),
+            ]),
 
-    regime = status.get("regime", "UNKNOWN").upper()
-    confidence = status.get("confidence", 0.0)
-    signal = status.get("signal", "HOLD")
-    ticker = status.get("ticker", "?")
+        ], className="bento-card anim-8", style={"gridColumn": "span 3"}),
+    ], style={
+        "display": "grid",
+        "gridTemplateColumns": "repeat(12, 1fr)",
+        "gap": "10px",
+        "marginBottom": "10px",
+    })
 
-    regime_colors = {"BULL": GREEN, "BEAR": RED, "CHOP": YELLOW}
-    # Match partial regime names
-    for key in regime_colors:
-        if key in regime:
-            r_color = regime_colors[key]
-            break
-    else:
-        r_color = TEXT_DIM
-
-    signal_colors = {"BUY": GREEN, "SELL": RED, "HOLD": YELLOW}
-    s_color = signal_colors.get(signal, TEXT_DIM)
-
-    return html.Div([
-        html.Span(f"{ticker} ", style={"color": TEXT_DIM}),
-        html.Span(regime, style={"color": r_color, "fontWeight": "bold", "marginRight": "12px"}),
-        html.Span(f"conf={confidence:.0%} ", style={"color": TEXT_DIM}),
-        html.Span(signal, style={"color": s_color, "fontWeight": "bold"}),
-    ], style=CARD_STYLE)
+    return [metrics_row, projects_row, charts_row, bottom_row]
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="HMM Trader — Portfolio Overview Dashboard")
+    parser = argparse.ArgumentParser(description="HMM Trader — Portfolio Overview")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8090)
     args = parser.parse_args()
 
-    print(f"Portfolio Overview Dashboard: http://{args.host}:{args.port}")
+    print(f"Portfolio Overview: http://{args.host}:{args.port}")
     app.run(host=args.host, port=args.port, debug=False, use_reloader=False)
 
 

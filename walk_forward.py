@@ -321,10 +321,15 @@ def run_walk_forward(
     # Temporarily override confirmations if caller requested specific values
     _saved_confirms       = config.MIN_CONFIRMATIONS
     _saved_confirms_short = config.MIN_CONFIRMATIONS_SHORT
+    _saved_taker_fee      = config.TAKER_FEE
     if confirmations is not None:
         config.MIN_CONFIRMATIONS = confirmations
     if confirmations_short is not None:
         config.MIN_CONFIRMATIONS_SHORT = confirmations_short
+
+    # Apply tiered slippage for crypto tickers (Sprint 9)
+    ticker_fee = config.get_ticker_fee(ticker)
+    config.TAKER_FEE = ticker_fee
 
     if not quiet:
         print(f"\n{'═'*60}")
@@ -431,6 +436,7 @@ def run_walk_forward(
 
     config.MIN_CONFIRMATIONS       = _saved_confirms
     config.MIN_CONFIRMATIONS_SHORT = _saved_confirms_short
+    config.TAKER_FEE               = _saved_taker_fee
     return all_results, combined_eq, combined_bh, pd.concat(all_trades) if all_trades else pd.DataFrame()
 
 

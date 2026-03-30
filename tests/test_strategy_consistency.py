@@ -1064,15 +1064,14 @@ class TestAgateMultiTickerConfig:
         assert hasattr(config, "AGATE_TICKERS")
         tickers = config.AGATE_TICKERS
         assert isinstance(tickers, list)
-        assert len(tickers) >= 10  # at least 10 crypto tickers
+        assert len(tickers) >= 4  # Sprint 9: narrowed to 6 validated tickers
         for t in tickers:
             assert t.startswith("X:"), f"Ticker {t} missing X: prefix"
             assert t.endswith("USD"), f"Ticker {t} doesn't end with USD"
 
     def test_agate_tickers_includes_key_assets(self):
-        """AGATE should include BTC, ETH, SOL at minimum."""
+        """AGATE should include ETH, SOL at minimum (BTC dropped Sprint 9 — too efficient)."""
         tickers = config.AGATE_TICKERS
-        assert "X:BTCUSD" in tickers
         assert "X:ETHUSD" in tickers
         assert "X:SOLUSD" in tickers
 
@@ -1098,10 +1097,10 @@ class TestAgateMultiTicker:
     """Tests for Sprint 6 multi-ticker AGATE features."""
 
     def test_agate_tickers_config_exists(self):
-        """AGATE_TICKERS should be defined in config with at least 10 tickers."""
+        """AGATE_TICKERS should be defined in config (Sprint 9: 6 validated tickers)."""
         assert hasattr(config, "AGATE_TICKERS"), "config.AGATE_TICKERS not defined"
-        assert len(config.AGATE_TICKERS) >= 10, (
-            f"Expected >=10 AGATE tickers, got {len(config.AGATE_TICKERS)}"
+        assert len(config.AGATE_TICKERS) >= 4, (
+            f"Expected >=4 AGATE tickers, got {len(config.AGATE_TICKERS)}"
         )
 
     def test_agate_tickers_format(self):

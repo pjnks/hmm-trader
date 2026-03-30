@@ -262,6 +262,62 @@ def compute_return_momentum_ratio(df: pd.DataFrame,
     return ratio.clip(lo, hi).rename("return_momentum_ratio")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# ATR-normalized features (cross-asset universality — Sprint 8)
+# Dividing by ATR means the HMM sees vol-adjusted moves, not raw price moves.
+# A 2% BTC move in a 1% ATR regime is a "2 ATR event" — same scale as a
+# 4% HBAR move in a 2% ATR regime.  Enables universal configs across assets.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def compute_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """Average True Range — standard measure of price volatility.
+    Uses Wilder's smoothing (EMA with alpha=1/period)."""
+    high, low, close = df["High"], df["Low"], df["Close"]
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        (high - low),
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    return tr.ewm(alpha=1.0 / period, min_periods=period).mean().rename("atr")
+
+
+def compute_atr_normalized_return(df: pd.DataFrame, atr_period: int = 14) -> pd.Series:
+    """Log return divided by ATR-as-%-of-price.  Result: how many ATR units
+    the bar moved.  Winsorised 1-99% for HMM stability."""
+    log_ret = np.log(df["Close"] / df["Close"].shift(1))
+    atr = compute_atr(df, atr_period)
+    atr_pct = atr / df["Close"].replace(0, np.nan)
+    ratio = log_ret / atr_pct.replace(0, np.nan)
+    lo, hi = ratio.quantile(0.01), ratio.quantile(0.99)
+    return ratio.clip(lo, hi).rename("atr_norm_return")
+
+
+def compute_atr_normalized_range(df: pd.DataFrame, atr_period: int = 14) -> pd.Series:
+    """Bar range (high-low)/close normalised by ATR.  Values near 1.0 = normal bar,
+    >>1 = expansion bar, <<1 = inside bar.  Winsorised 1-99%."""
+    bar_range = (df["High"] - df["Low"]) / df["Close"].replace(0, np.nan)
+    atr = compute_atr(df, atr_period)
+    atr_pct = atr / df["Close"].replace(0, np.nan)
+    ratio = bar_range / atr_pct.replace(0, np.nan)
+    lo, hi = ratio.quantile(0.01), ratio.quantile(0.99)
+    return ratio.clip(lo, hi).rename("atr_norm_range")
+
+
+def compute_atr_normalized_volume(df: pd.DataFrame, atr_period: int = 14,
+                                   vol_window: int = 20) -> pd.Series:
+    """Volume change (vs rolling mean) scaled by ATR regime.  High value =
+    unusual volume in a volatile environment.  Winsorised 1-99%."""
+    vol_ratio = df["Volume"] / df["Volume"].rolling(vol_window).mean().replace(0, np.nan)
+    atr = compute_atr(df, atr_period)
+    atr_pct = atr / df["Close"].replace(0, np.nan)
+    # Normalise: vol_ratio already dimensionless; multiply by atr_pct to capture
+    # whether volume spike happened during high-vol or low-vol regime
+    combined = vol_ratio * atr_pct
+    lo, hi = combined.quantile(0.01), combined.quantile(0.99)
+    return combined.clip(lo, hi).rename("atr_norm_volume")
+
+
 def compute_candle_body_ratio(df: pd.DataFrame) -> pd.Series:
     """abs(close-open) / (high-low); zero-range bars filled with 0.5."""
     body  = (df["Close"] - df["Open"]).abs()
@@ -318,5 +374,11 @@ def attach_all(df: pd.DataFrame) -> pd.DataFrame:
     df["realized_kurtosis"]       = compute_realized_kurtosis(df)
     df["volume_return_intensity"] = compute_volume_return_intensity(df)
     df["return_momentum_ratio"]   = compute_return_momentum_ratio(df)
+
+    # Sprint 8: ATR-normalized features (cross-asset universality)
+    df["atr"]                = compute_atr(df)
+    df["atr_norm_return"]    = compute_atr_normalized_return(df)
+    df["atr_norm_range"]     = compute_atr_normalized_range(df)
+    df["atr_norm_volume"]    = compute_atr_normalized_volume(df)
 
     return df

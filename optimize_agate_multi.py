@@ -168,7 +168,10 @@ def _run_single_trial(trial: dict) -> dict | None:
             "positive_windows": positive_windows,
             "std_sharpe": round(std_sharpe, 4),
             "consistency": round(consistency, 3),
-            "rank_score": round(wf_sharpe * consistency, 4),
+            # Sprint 8: trade frequency penalty — log(N_trades) pushes optimizer toward
+            # configs with statistical significance.  A 5-trade Sharpe 3.0 config now
+            # ranks below a 50-trade Sharpe 1.5 config (log(5)*3=4.8 vs log(50)*1.5=5.9).
+            "rank_score": round(wf_sharpe * consistency * np.log(max(total_trades, 1)), 4),
             "timestamp": datetime.now().isoformat(),
         }
 
@@ -248,10 +251,12 @@ def _save_per_ticker_configs(results_df: pd.DataFrame):
         log.warning("No valid results to save per-ticker configs")
         return
 
-    # Best config per ticker: rank by Sharpe x Consistency
-    # This penalizes configs that are great in one window but terrible in others
+    # Best config per ticker: rank by Sharpe × Consistency × log(trades)
+    # Penalizes low-trade-count configs (statistical insignificance) and
+    # configs that are great in one window but terrible in others
     valid["consistency"] = valid["positive_windows"] / valid["n_windows"].clip(lower=1)
-    valid["rank_score"] = valid["wf_sharpe"] * valid["consistency"]
+    valid["rank_score"] = (valid["wf_sharpe"] * valid["consistency"]
+                           * np.log(valid["total_trades"].clip(lower=1)))
 
     best_configs = {}
     for ticker in valid["ticker"].unique():
