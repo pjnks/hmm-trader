@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime, date, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 import numpy as np
@@ -761,6 +762,20 @@ def update_dashboard(_n):
             day_offset = num_days - 1 - i  # 0 = most recent
             d_label = f"Day {-day_offset}" if day_offset > 0 else "Day 0 (latest)"
             d_sublabel = d.strftime("%m/%d")
+
+            # For Day 0, add "last updated" timestamp from most recent snapshot
+            if day_offset == 0:
+                latest_ts = snap_df[snap_df["_date"] == d].iloc[-1]["timestamp"]
+                try:
+                    et = ZoneInfo("America/New_York")
+                    ts_dt = pd.to_datetime(latest_ts)
+                    if ts_dt.tzinfo is None:
+                        ts_dt = ts_dt.replace(tzinfo=timezone.utc)
+                    ts_et = ts_dt.astimezone(et)
+                    d_sublabel = f"{d.strftime('%m/%d')} (Updated: {ts_et.strftime('%-I:%M%p').lower()} ET)"
+                except Exception:
+                    pass  # fall back to plain date
+
             d_str = f"${d_pnl:+,.0f} ({d_pct:+.2f}%)"
 
             day_cards.append(

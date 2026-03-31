@@ -882,16 +882,31 @@ def _metric_cell(label: str, value: str, color: str = TEXT,
                     style={"height": "100%"})
 
 
-def _project_panel(project: str, metrics: dict, status: dict,
-                   anim: int = 1) -> html.Div:
-    """Full project panel — bento card with name, regime, metrics."""
+def _unified_panel(project: str, metrics: dict, status: dict | None = None,
+                   highlights: dict | None = None, anim: int = 1) -> html.Div:
+    """Uniform project panel — identical layout for all 5 projects.
+
+    Layout (matching wireframe):
+      Row 0: [Icon Name]                    [Status Badge]
+      Row 1: Notes line (regime/signal or activity type)
+      Row 2: INDEX  value          CHANGE  +/-%
+      Row 3: P&L    $value         TRADES  count
+      Row 4: WIN RATE  %           SHARPE(20)  value
+      Row 5: LAST  MM-DD HH:MM
+      Row 6: Kill bar
+
+    highlights: dict mapping metric key → "best" | "worst" for rank indicators.
+    """
+    if status is None:
+        status = {}
+    if highlights is None:
+        highlights = {}
+
     color = PROJECT_COLORS.get(project, TEXT)
     icon = PROJECT_ICONS.get(project, "●")
-    pnl = metrics["total_pnl"]
-    pnl_color = GREEN if pnl >= 0 else RED
 
-    # Degradation
-    deg = metrics["degradation"]
+    # ── Degradation / status badge ──
+    deg = metrics.get("degradation", "unknown")
     deg_map = {
         "healthy": (GREEN, "NOMINAL"),
         "warning": (YELLOW, "DRIFT"),
@@ -903,10 +918,16 @@ def _project_panel(project: str, metrics: dict, status: dict,
     }
     deg_color, deg_label = deg_map.get(deg, (TEXT_MUTED, "?"))
 
-    # Regime from status
-    regime = status.get("regime", "—").upper()
+    # Override badge for special projects
+    if project == "DIAMOND" and deg_label in ("—", "PENDING", "COLLECTING"):
+        deg_color, deg_label = TEXT_DIM, "PAPER"
+    elif project == "EMERALD" and deg_label in ("—", "PENDING", "COLLECTING", "RESEARCH"):
+        deg_color, deg_label = TEXT_DIM, "RESEARCH"
+
+    # ── Notes line (regime/signal or activity label) ──
+    regime = status.get("regime", "").upper()
     confidence = status.get("confidence", 0.0)
-    signal = status.get("signal", "—")
+    signal = status.get("signal", "")
 
     regime_colors = {"BULL": GREEN, "BEAR": RED, "CHOP": YELLOW}
     r_color = TEXT_DIM
@@ -918,263 +939,147 @@ def _project_panel(project: str, metrics: dict, status: dict,
     signal_colors = {"BUY": GREEN, "SELL": RED, "HOLD": TEXT_DIM, "SHORT": PURPLE}
     s_color = signal_colors.get(signal, TEXT_DIM)
 
-    # Kill-switch bar — green if healthy
-    kill_bar_color = GREEN if deg in ("healthy", "too_early", "unknown", "insufficient_data", "research") else RED
+    # Build notes line content
+    if regime:
+        notes_line = html.Div([
+            html.Span(regime, style={
+                "color": r_color, "fontWeight": "600", "fontSize": "0.8rem",
+                "letterSpacing": "0.05em",
+            }),
+            html.Span(f" {confidence:.0%}", style={"color": TEXT_DIM, "fontSize": "0.65rem"}),
+            html.Span(f"   {signal}", style={
+                "color": s_color, "fontWeight": "500", "fontSize": "0.7rem",
+            }) if signal else html.Span(),
+        ], style={"marginBottom": "10px", "height": "18px"})
+    elif project == "DIAMOND":
+        ds = status.get("status", "active" if metrics.get("total_trades", 0) > 0 else "unknown")
+        notes_line = html.Div([
+            html.Span("● " if ds == "active" else "○ ",
+                      style={"color": GREEN if ds == "active" else TEXT_DIM}),
+            html.Span("ACTIVE", style={"color": TEXT_DIM, "fontSize": "0.7rem",
+                                        "letterSpacing": "0.1em"}),
+        ], style={"marginBottom": "10px", "height": "18px"})
+    elif project == "EMERALD":
+        notes_line = html.Div([
+            html.Span("● " if metrics.get("total_trades", 0) > 0 else "○ ",
+                      style={"color": GREEN if metrics.get("total_trades", 0) > 0 else TEXT_DIM}),
+            html.Span("NBA PREDICTIONS", style={"color": TEXT_DIM, "fontSize": "0.7rem",
+                                                  "letterSpacing": "0.1em"}),
+        ], style={"marginBottom": "10px", "height": "18px"})
+    else:
+        notes_line = html.Div(style={"marginBottom": "10px", "height": "18px"})
+
+    # ── Shared metric values ──
+    index_100 = metrics.get("index_100", 100.0)
+    idx_color = GREEN if index_100 >= 100 else RED
+    change = index_100 - 100
+    pnl = metrics.get("total_pnl", 0.0)
+    pnl_color = GREEN if pnl >= 0 else RED
+    trades = metrics.get("total_trades", 0)
+    win_rate = metrics.get("win_rate", 0.0)
+    sharpe = metrics.get("sharpe_20", 0.0)
+    last_trade = metrics.get("last_trade", "—")
+
+    # ── Common metric cell style ──
+    _lbl = {"color": TEXT_MUTED, "fontSize": "0.55rem", "letterSpacing": "0.1em",
+            "textTransform": "uppercase", "marginBottom": "2px"}
+    _val = {"fontSize": "1.05rem", "fontWeight": "600", "fontVariantNumeric": "tabular-nums",
+            "lineHeight": "1.2"}
+
+    # Kill bar
+    kill_ok = deg in ("healthy", "too_early", "unknown", "insufficient_data", "research")
+    kill_bar_color = GREEN if kill_ok else RED
     kill_bar_width = "100%" if deg != "critical" else "30%"
 
+    # ── Rank badge helper ──
+    def _rank_badge(key: str) -> html.Span:
+        """Return a small ▲/▼ badge if this metric is best/worst across projects."""
+        rank = highlights.get(key)
+        if rank == "best":
+            return html.Span(" ▲", style={
+                "color": GREEN, "fontSize": "0.55rem", "fontWeight": "700",
+                "verticalAlign": "super", "opacity": "0.8",
+            })
+        elif rank == "worst":
+            return html.Span(" ▼", style={
+                "color": RED, "fontSize": "0.55rem", "fontWeight": "700",
+                "verticalAlign": "super", "opacity": "0.8",
+            })
+        return html.Span()
+
+    # ── 2-col metric row helper ──
+    def _row(l_label, l_val, l_color, r_label, r_val, r_color,
+             l_key="", r_key=""):
+        l_rank_bg = (
+            "rgba(0, 214, 143, 0.06)" if highlights.get(l_key) == "best" else
+            "rgba(255, 61, 113, 0.06)" if highlights.get(l_key) == "worst" else
+            "transparent"
+        )
+        r_rank_bg = (
+            "rgba(0, 214, 143, 0.06)" if highlights.get(r_key) == "best" else
+            "rgba(255, 61, 113, 0.06)" if highlights.get(r_key) == "worst" else
+            "transparent"
+        )
+        return html.Div([
+            html.Div([
+                html.Div(l_label, style=_lbl),
+                html.Div([l_val, _rank_badge(l_key)], style={**_val, "color": l_color}),
+            ], style={"flex": "1", "background": l_rank_bg,
+                       "borderRadius": "3px", "padding": "3px 4px", "margin": "-3px -4px"}),
+            html.Div([
+                html.Div(r_label, style=_lbl),
+                html.Div([r_val, _rank_badge(r_key)], style={**_val, "color": r_color}),
+            ], style={"flex": "1", "background": r_rank_bg,
+                       "borderRadius": "3px", "padding": "3px 4px", "margin": "-3px -4px"}),
+        ], style={"display": "flex", "gap": "12px", "marginBottom": "6px"})
+
     return html.Div([
-        # Header row
+        # Row 0: Header
         html.Div([
-            html.Span(f"{icon} ", style={"color": color, "fontSize": "0.9rem"}),
+            html.Span(f"{icon}", style={"color": color, "fontSize": "0.85rem",
+                                         "marginRight": "6px"}),
             html.Span(project, className="project-name", style={"color": color}),
             html.Span(deg_label, className="health-badge",
                       style={"color": deg_color, "borderColor": deg_color,
-                             "marginLeft": "auto", "float": "right"}),
+                             "marginLeft": "auto"}),
         ], style={"display": "flex", "alignItems": "center"}),
 
         html.Div(className="separator"),
 
-        # Regime line
-        html.Div([
-            html.Span(regime, style={
-                "color": r_color, "fontWeight": "600", "fontSize": "0.85rem",
-                "letterSpacing": "0.05em",
-            }),
-            html.Span(f"  {confidence:.0%}", style={"color": TEXT_DIM, "fontSize": "0.7rem"}),
-            html.Span(f"  {signal}", style={
-                "color": s_color, "fontWeight": "500", "fontSize": "0.7rem",
-                "marginLeft": "12px",
-            }),
-        ], style={"marginBottom": "12px"}) if regime != "—" else html.Div(),
+        # Row 1: Notes
+        notes_line,
 
-        # Index 100 line
-        html.Div([
-            html.Span("INDEX ", style={"color": TEXT_MUTED, "fontSize": "0.6rem",
-                                        "letterSpacing": "0.1em"}),
-            html.Span(f"{metrics.get('index_100', 100.0):.1f}", style={
-                "color": GREEN if metrics.get("index_100", 100) >= 100 else RED,
-                "fontSize": "1.3rem", "fontWeight": "700",
-                "fontVariantNumeric": "tabular-nums",
-            }),
-            html.Span(f"  {metrics.get('index_100', 100.0) - 100:+.1f}%", style={
-                "color": GREEN if metrics.get("index_100", 100) >= 100 else RED,
-                "fontSize": "0.7rem", "fontWeight": "400",
-            }),
-        ], style={"marginBottom": "10px"}),
+        # Row 2: INDEX + CHANGE
+        _row("INDEX", f"{index_100:.1f}", idx_color,
+             "CHANGE", f"{change:+.1f}%", idx_color,
+             l_key="index", r_key="index"),
 
-        # Metrics grid (2x2)
-        html.Div([
-            html.Div([
-                html.Div("P&L", className="metric-label"),
-                html.Div(f"${pnl:+,.2f}", style={
-                    "color": pnl_color, "fontSize": "1.1rem", "fontWeight": "600",
-                    "fontVariantNumeric": "tabular-nums",
-                }),
-            ], style={"flex": "1"}),
-            html.Div([
-                html.Div("TRADES", className="metric-label"),
-                html.Div(str(metrics["total_trades"]), style={
-                    "color": TEXT, "fontSize": "1.1rem", "fontWeight": "600",
-                    "fontVariantNumeric": "tabular-nums",
-                }),
-            ], style={"flex": "1"}),
-        ], style={"display": "flex", "gap": "16px", "marginBottom": "8px"}),
+        # Row 3: P&L + TRADES
+        _row("P&L", f"${pnl:+,.2f}", pnl_color,
+             "TRADES", str(trades), TEXT,
+             l_key="pnl"),
 
-        html.Div([
-            html.Div([
-                html.Div("WIN RATE", className="metric-label"),
-                html.Div(f"{metrics['win_rate']:.0%}", style={
-                    "color": GREEN if metrics["win_rate"] > 0.5 else
-                             (YELLOW if metrics["win_rate"] > 0.4 else RED),
-                    "fontSize": "1.1rem", "fontWeight": "600",
-                    "fontVariantNumeric": "tabular-nums",
-                }),
-            ], style={"flex": "1"}),
-            html.Div([
-                html.Div("SHARPE(20)", className="metric-label"),
-                html.Div(f"{metrics['sharpe_20']:.3f}", style={
-                    "color": GREEN if metrics["sharpe_20"] > 0.3 else
-                             (YELLOW if metrics["sharpe_20"] > 0 else RED),
-                    "fontSize": "1.1rem", "fontWeight": "600",
-                    "fontVariantNumeric": "tabular-nums",
-                }),
-            ], style={"flex": "1"}),
-        ], style={"display": "flex", "gap": "16px", "marginBottom": "8px"}),
+        # Row 4: WIN RATE + SHARPE(20)
+        _row("WIN RATE", f"{win_rate:.0%}",
+             GREEN if win_rate > 0.5 else (YELLOW if win_rate > 0.4 else RED),
+             "SHARPE(20)", f"{sharpe:.3f}",
+             GREEN if sharpe > 0.3 else (YELLOW if sharpe > 0 else RED),
+             l_key="win_rate", r_key="sharpe"),
 
-        # Last trade
+        # Row 5: Last trade timestamp
         html.Div([
-            html.Span("LAST  ", style={"color": TEXT_MUTED, "fontSize": "0.6rem"}),
-            html.Span(metrics["last_trade"], style={"color": TEXT_DIM, "fontSize": "0.65rem"}),
-        ]),
+            html.Span("LAST ", style={"color": TEXT_MUTED, "fontSize": "0.55rem",
+                                       "letterSpacing": "0.08em"}),
+            html.Span(last_trade, style={"color": TEXT_DIM, "fontSize": "0.6rem",
+                                          "fontVariantNumeric": "tabular-nums"}),
+        ], style={"marginTop": "4px"}),
 
-        # Kill-switch bar
+        # Row 6: Kill bar
         html.Div(style={
             "width": kill_bar_width, "height": "2px",
             "background": kill_bar_color, "borderRadius": "1px",
-            "marginTop": "10px", "opacity": "0.6",
-            "transition": "width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)",
+            "marginTop": "8px", "opacity": "0.6",
         }),
-
-    ], className=f"bento-card anim-{anim}")
-
-
-def _diamond_panel(summary: dict, index_100: float = 100.0,
-                   anim: int = 5) -> html.Div:
-    """DIAMOND project panel (different data structure)."""
-    status = summary.get("status", "unknown")
-    trades = summary.get("trades", 0)
-    pnl = summary.get("pnl", 0)
-    win_rate = summary.get("win_rate", 0)
-
-    return html.Div([
-        html.Div([
-            html.Span(f"{PROJECT_ICONS['DIAMOND']} ", style={"color": PURPLE, "fontSize": "0.9rem"}),
-            html.Span("DIAMOND", className="project-name", style={"color": PURPLE}),
-            html.Span("PAPER", className="health-badge",
-                      style={"color": TEXT_DIM, "borderColor": TEXT_DIM,
-                             "marginLeft": "auto", "float": "right"}),
-        ], style={"display": "flex", "alignItems": "center"}),
-
-        html.Div(className="separator"),
-
-        html.Div([
-            html.Span("●" if status == "active" else "○",
-                      style={"color": GREEN if status == "active" else RED,
-                             "marginRight": "6px"}),
-            html.Span(status.upper(), style={"color": TEXT_DIM, "fontSize": "0.7rem",
-                                              "letterSpacing": "0.1em"}),
-        ], style={"marginBottom": "12px"}),
-
-        # Index 100 line
-        html.Div([
-            html.Span("INDEX ", style={"color": TEXT_MUTED, "fontSize": "0.6rem",
-                                        "letterSpacing": "0.1em"}),
-            html.Span(f"{index_100:.1f}", style={
-                "color": GREEN if index_100 >= 100 else RED,
-                "fontSize": "1.3rem", "fontWeight": "700",
-                "fontVariantNumeric": "tabular-nums",
-            }),
-            html.Span(f"  {index_100 - 100:+.1f}%", style={
-                "color": GREEN if index_100 >= 100 else RED,
-                "fontSize": "0.7rem", "fontWeight": "400",
-            }),
-        ], style={"marginBottom": "10px"}),
-
-        html.Div([
-            html.Div([
-                html.Div("P&L", className="metric-label"),
-                html.Div(f"${pnl:+,.2f}", style={
-                    "color": GREEN if pnl >= 0 else RED,
-                    "fontSize": "1.1rem", "fontWeight": "600",
-                    "fontVariantNumeric": "tabular-nums",
-                }),
-            ], style={"flex": "1"}),
-            html.Div([
-                html.Div("TRADES", className="metric-label"),
-                html.Div(str(trades), style={
-                    "color": TEXT, "fontSize": "1.1rem", "fontWeight": "600",
-                    "fontVariantNumeric": "tabular-nums",
-                }),
-            ], style={"flex": "1"}),
-            html.Div([
-                html.Div("WIN RATE", className="metric-label"),
-                html.Div(f"{win_rate:.0%}", style={
-                    "color": GREEN if win_rate > 0.5 else (YELLOW if win_rate > 0.4 else RED),
-                    "fontSize": "1.1rem", "fontWeight": "600",
-                    "fontVariantNumeric": "tabular-nums",
-                }),
-            ], style={"flex": "1"}),
-        ], style={"display": "flex", "gap": "16px"}),
-
-    ], className=f"bento-card anim-{anim}")
-
-
-def _emerald_panel(metrics: dict, bankroll: pd.DataFrame,
-                   anim: int = 6) -> html.Div:
-    """EMERALD project panel — NBA sports predictions (simulated bankroll)."""
-    trades = metrics["total_trades"]
-    win_rate = metrics["win_rate"]
-
-    # Current bankroll from bankroll table (authoritative for P&L)
-    current_balance = 1000.0
-    if bankroll is not None and not bankroll.empty and "balance" in bankroll.columns:
-        current_balance = float(bankroll["balance"].iloc[-1])
-
-    # P&L derived from bankroll (not raw prediction sums, which are uncapped/inflated)
-    pnl = current_balance - 1000.0
-    pnl_color = GREEN if pnl >= 0 else RED
-
-    return html.Div([
-        html.Div([
-            html.Span(f"{PROJECT_ICONS['EMERALD']} ", style={"color": EMERALD_GREEN, "fontSize": "0.9rem"}),
-            html.Span("EMERALD", className="project-name", style={"color": EMERALD_GREEN}),
-            html.Span("RESEARCH", className="health-badge",
-                      style={"color": TEXT_DIM, "borderColor": TEXT_DIM,
-                             "marginLeft": "auto", "float": "right"}),
-        ], style={"display": "flex", "alignItems": "center"}),
-
-        html.Div(className="separator"),
-
-        # Status line
-        html.Div([
-            html.Span("●" if trades > 0 else "○",
-                      style={"color": GREEN if trades > 0 else TEXT_DIM,
-                             "marginRight": "6px"}),
-            html.Span("NBA PREDICTIONS", style={"color": TEXT_DIM, "fontSize": "0.7rem",
-                                                 "letterSpacing": "0.1em"}),
-        ], style={"marginBottom": "12px"}),
-
-        # Index 100 line
-        html.Div([
-            html.Span("INDEX ", style={"color": TEXT_MUTED, "fontSize": "0.6rem",
-                                        "letterSpacing": "0.1em"}),
-            html.Span(f"{metrics.get('index_100', 100.0):.1f}", style={
-                "color": GREEN if metrics.get("index_100", 100) >= 100 else RED,
-                "fontSize": "1.3rem", "fontWeight": "700",
-                "fontVariantNumeric": "tabular-nums",
-            }),
-            html.Span(f"  {metrics.get('index_100', 100.0) - 100:+.1f}%", style={
-                "color": GREEN if metrics.get("index_100", 100) >= 100 else RED,
-                "fontSize": "0.7rem", "fontWeight": "400",
-            }),
-        ], style={"marginBottom": "10px"}),
-
-        # Metrics grid
-        html.Div([
-            html.Div([
-                html.Div("P&L", className="metric-label"),
-                html.Div(f"${pnl:+,.2f}", style={
-                    "color": pnl_color, "fontSize": "1.1rem", "fontWeight": "600",
-                    "fontVariantNumeric": "tabular-nums",
-                }),
-            ], style={"flex": "1"}),
-            html.Div([
-                html.Div("BANKROLL", className="metric-label"),
-                html.Div(f"${current_balance:,.0f}", style={
-                    "color": GREEN if current_balance >= 1000 else RED,
-                    "fontSize": "1.1rem", "fontWeight": "600",
-                    "fontVariantNumeric": "tabular-nums",
-                }),
-            ], style={"flex": "1"}),
-        ], style={"display": "flex", "gap": "16px", "marginBottom": "8px"}),
-
-        html.Div([
-            html.Div([
-                html.Div("BETS", className="metric-label"),
-                html.Div(str(trades), style={
-                    "color": TEXT, "fontSize": "1.1rem", "fontWeight": "600",
-                    "fontVariantNumeric": "tabular-nums",
-                }),
-            ], style={"flex": "1"}),
-            html.Div([
-                html.Div("WIN RATE", className="metric-label"),
-                html.Div(f"{win_rate:.0%}", style={
-                    "color": GREEN if win_rate > 0.5 else (YELLOW if win_rate > 0.4 else RED),
-                    "fontSize": "1.1rem", "fontWeight": "600",
-                    "fontVariantNumeric": "tabular-nums",
-                }),
-            ], style={"flex": "1"}),
-        ], style={"display": "flex", "gap": "16px"}),
 
     ], className=f"bento-card anim-{anim}")
 
@@ -1308,15 +1213,11 @@ def _update_dashboard_inner(active_filter=None):
             idx = 100.0
         all_metrics[project]["index_100"] = idx
 
-    # Aggregates — use bankroll-derived P&L for EMERALD (raw pnl sums are inflated)
-    emerald_balance = 1000.0
+    # Override EMERALD P&L from bankroll (raw prediction pnl sums are inflated/uncapped)
     if emerald_bankroll is not None and not emerald_bankroll.empty and "balance" in emerald_bankroll.columns:
-        emerald_balance = float(emerald_bankroll["balance"].iloc[-1])
-    emerald_real_pnl = emerald_balance - 1000.0
+        all_metrics["EMERALD"]["total_pnl"] = float(emerald_bankroll["balance"].iloc[-1]) - 1000.0
 
-    total_pnl = sum(
-        m["total_pnl"] for name, m in all_metrics.items() if name != "EMERALD"
-    ) + emerald_real_pnl
+    total_pnl = sum(m["total_pnl"] for m in all_metrics.values())
     total_trades = sum(m["total_trades"] for m in all_metrics.values())
     active_projects = sum(1 for m in all_metrics.values() if m["total_trades"] > 0)
 
@@ -1380,18 +1281,37 @@ def _update_dashboard_inner(active_filter=None):
         "marginBottom": "10px",
     })
 
-    # Row 2: Project panels — 5 panels, auto-wrap (3+2 or 5-across)
-    # Panels are direct grid items (no wrapper divs) so CSS grid stretch
-    # makes all cards in the same row equal height.
+    # Compute best/worst rankings across all 5 projects for key metrics
+    rank_keys = {
+        "index":    lambda m: m.get("index_100", 100.0),
+        "pnl":      lambda m: m.get("total_pnl", 0.0),
+        "win_rate": lambda m: m.get("win_rate", 0.0),
+        "sharpe":   lambda m: m.get("sharpe_20", 0.0),
+    }
+    project_highlights: dict[str, dict] = {p: {} for p in ALL_PROJECTS}
+    for key, fn in rank_keys.items():
+        vals = {p: fn(all_metrics[p]) for p in ALL_PROJECTS}
+        best_p = max(vals, key=vals.get)
+        worst_p = min(vals, key=vals.get)
+        if vals[best_p] != vals[worst_p]:  # skip if all identical
+            project_highlights[best_p][key] = "best"
+            project_highlights[worst_p][key] = "worst"
+
+    # Row 2: Project panels — 5 uniform panels, auto-wrap
     projects_row = html.Div([
-        _project_panel("AGATE", all_metrics["AGATE"], agate_status, anim=2),
-        _project_panel("BERYL", all_metrics["BERYL"], beryl_status, anim=3),
-        _project_panel("CITRINE", all_metrics["CITRINE"], {}, anim=4),
-        _diamond_panel(diamond_summary, index_100=all_metrics["DIAMOND"]["index_100"], anim=5),
-        _emerald_panel(all_metrics["EMERALD"], emerald_bankroll, anim=6),
+        _unified_panel("AGATE", all_metrics["AGATE"], agate_status,
+                       highlights=project_highlights["AGATE"], anim=2),
+        _unified_panel("BERYL", all_metrics["BERYL"], beryl_status,
+                       highlights=project_highlights["BERYL"], anim=3),
+        _unified_panel("CITRINE", all_metrics["CITRINE"], {},
+                       highlights=project_highlights["CITRINE"], anim=4),
+        _unified_panel("DIAMOND", all_metrics["DIAMOND"], diamond_summary,
+                       highlights=project_highlights["DIAMOND"], anim=5),
+        _unified_panel("EMERALD", all_metrics["EMERALD"], {},
+                       highlights=project_highlights["EMERALD"], anim=6),
     ], style={
         "display": "grid",
-        "gridTemplateColumns": "repeat(auto-fit, minmax(240px, 1fr))",
+        "gridTemplateColumns": "repeat(5, 1fr)",
         "gap": "10px",
         "marginBottom": "10px",
     })
