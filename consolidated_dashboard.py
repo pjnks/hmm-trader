@@ -1,7 +1,7 @@
 """
 consolidated_dashboard.py
 ─────────────────────────
-Portfolio Overview — Combined view of all 4 trading sub-projects.
+Portfolio Overview — Combined view of all 5 trading sub-projects.
 
 Retro-futuristic bento-box dashboard with industrial/utilitarian aesthetic.
 Deep obsidian background, neon-cyan accents, grainy glassmorphism cards,
@@ -51,6 +51,13 @@ DIAMOND_DB_CANDIDATES = [
     ROOT / "diamond.db",
 ]
 
+EMERALD_DB_CANDIDATES = [
+    ROOT.parent / "emerald" / "emerald.db",
+    Path("/home/ubuntu/emerald/emerald.db"),
+    Path("/home/ubuntu/HMM-Trader/emerald.db"),  # synced copy
+    ROOT / "emerald.db",
+]
+
 STATUS_FILES = {
     "AGATE": ROOT / "agate_status.json",
     "BERYL": ROOT / "beryl_status.json",
@@ -61,6 +68,7 @@ EXPECTED_SHARPE = {
     "BERYL":   0.825,
     "CITRINE": 1.665,
     "DIAMOND": 0.500,
+    "EMERALD": 1.000,
 }
 
 # ── Swiss Design Palette ─────────────────────────────────────────────────────
@@ -87,11 +95,14 @@ BLUE        = "#598bff"
 PURPLE      = "#c471f5"
 ORANGE      = "#ff8a50"
 
+EMERALD_GREEN = "#50fa7b"  # Bright emerald — distinct from AGATE's #00d68f
+
 PROJECT_COLORS = {
     "AGATE":   GREEN,
     "BERYL":   BLUE,
     "CITRINE": ORANGE,
     "DIAMOND": PURPLE,
+    "EMERALD": EMERALD_GREEN,
 }
 
 PROJECT_ICONS = {
@@ -99,6 +110,7 @@ PROJECT_ICONS = {
     "BERYL":   "◈",
     "CITRINE": "◇",
     "DIAMOND": "◊",
+    "EMERALD": "◈",
 }
 
 
@@ -412,6 +424,52 @@ def _load_diamond_trades() -> pd.DataFrame:
     return pd.DataFrame()
 
 
+def _load_emerald_trades() -> pd.DataFrame:
+    """Load EMERALD predictions, normalizing schema to match other projects.
+
+    EMERALD uses pnl (dollars, already correct) and resolved_at (Unix epoch float)
+    in its predictions table.  We filter to resolved predictions only.
+    """
+    for candidate in EMERALD_DB_CANDIDATES:
+        if candidate.exists():
+            try:
+                with sqlite3.connect(str(candidate)) as conn:
+                    df = pd.read_sql_query(
+                        "SELECT market_type, side, pnl, resolved_at "
+                        "FROM predictions "
+                        "WHERE pnl IS NOT NULL AND resolved_at IS NOT NULL "
+                        "ORDER BY resolved_at ASC", conn)
+                if df.empty:
+                    return pd.DataFrame()
+                df["timestamp"] = pd.to_datetime(df["resolved_at"], unit="s", utc=True)
+                df = df.drop(columns=["resolved_at"])
+                # Rename market_type→ticker for consistency with other loaders
+                df = df.rename(columns={"market_type": "ticker"})
+                return df
+            except Exception:
+                return pd.DataFrame()
+    return pd.DataFrame()
+
+
+def _load_emerald_bankroll() -> pd.DataFrame:
+    """Load EMERALD bankroll history for equity curve display."""
+    for candidate in EMERALD_DB_CANDIDATES:
+        if candidate.exists():
+            try:
+                with sqlite3.connect(str(candidate)) as conn:
+                    df = pd.read_sql_query(
+                        "SELECT balance, change, reason, ts "
+                        "FROM bankroll ORDER BY ts ASC", conn)
+                if df.empty:
+                    return pd.DataFrame()
+                df["timestamp"] = pd.to_datetime(df["ts"], unit="s", utc=True)
+                df = df.drop(columns=["ts"])
+                return df
+            except Exception:
+                return pd.DataFrame()
+    return pd.DataFrame()
+
+
 def _diamond_summary_from_trades(df: pd.DataFrame) -> dict:
     """Build DIAMOND summary dict from normalized trades DataFrame."""
     if df.empty or "pnl" not in df.columns:
@@ -458,8 +516,15 @@ def _compute_project_metrics(project: str, trades_df: pd.DataFrame) -> dict:
     pnls = trades_df["pnl"].values.astype(float)
     total_pnl = float(np.sum(pnls))
     total_trades = len(pnls)
-    wins = int(np.sum(pnls > 0))
-    win_rate = wins / max(total_trades, 1)
+
+    # For EMERALD, exclude pushes (pnl=0) from win rate calc
+    non_zero = pnls[pnls != 0]
+    if project == "EMERALD" and len(non_zero) > 0:
+        wins = int(np.sum(non_zero > 0))
+        win_rate = wins / len(non_zero)
+    else:
+        wins = int(np.sum(pnls > 0))
+        win_rate = wins / max(total_trades, 1)
     sharpe_20 = _rolling_sharpe(pnls, window=20)
 
     last_ts = trades_df["timestamp"].iloc[-1] if not trades_df.empty else "—"
@@ -472,7 +537,10 @@ def _compute_project_metrics(project: str, trades_df: pd.DataFrame) -> dict:
     degradation = "unknown"
     degradation_sigma = 0.0
 
-    if total_trades >= 10:
+    # EMERALD is research-only — skip degradation model
+    if project == "EMERALD":
+        degradation = "research"
+    elif total_trades >= 10:
         live_expected = expected * 0.15
         if live_expected > 0:
             degradation_sigma = (sharpe_20 - live_expected) / max(abs(live_expected) * 0.5, 0.1)
@@ -536,7 +604,8 @@ CHART_LAYOUT = dict(
 
 
 def _build_equity_chart(all_trades: dict[str, pd.DataFrame],
-                        snapshots: pd.DataFrame) -> go.Figure:
+                        snapshots: pd.DataFrame,
+                        emerald_bankroll: pd.DataFrame | None = None) -> go.Figure:
     fig = go.Figure()
     fig.update_layout(
         **CHART_LAYOUT,
@@ -550,8 +619,17 @@ def _build_equity_chart(all_trades: dict[str, pd.DataFrame],
         y = snapshots["total_equity"] - 25000
         fig.add_trace(go.Scatter(
             x=snapshots["timestamp"], y=y,
-            name="CITRINE", line=dict(color=GREEN, width=1.5),
-            fill="tozeroy", fillcolor="rgba(0, 214, 143, 0.05)",
+            name="CITRINE", line=dict(color=ORANGE, width=1.5),
+            fill="tozeroy", fillcolor="rgba(255, 138, 80, 0.05)",
+        ))
+
+    # EMERALD from bankroll (like CITRINE from snapshots)
+    if emerald_bankroll is not None and not emerald_bankroll.empty and "balance" in emerald_bankroll.columns:
+        y = emerald_bankroll["balance"] - 1000  # started from $1k
+        fig.add_trace(go.Scatter(
+            x=emerald_bankroll["timestamp"], y=y,
+            name="EMERALD", line=dict(color=EMERALD_GREEN, width=1.5),
+            fill="tozeroy", fillcolor="rgba(80, 250, 123, 0.05)",
         ))
 
     # AGATE / BERYL / DIAMOND from cumulative P&L
@@ -801,6 +879,7 @@ def _project_panel(project: str, metrics: dict, status: dict,
         "critical": (RED, "DEGRADED"),
         "insufficient_data": (TEXT_DIM, "COLLECTING"),
         "too_early": (TEXT_MUTED, "PENDING"),
+        "research": (CYAN_DIM, "RESEARCH"),
         "unknown": (TEXT_MUTED, "—"),
     }
     deg_color, deg_label = deg_map.get(deg, (TEXT_MUTED, "?"))
@@ -821,7 +900,7 @@ def _project_panel(project: str, metrics: dict, status: dict,
     s_color = signal_colors.get(signal, TEXT_DIM)
 
     # Kill-switch bar — green if healthy
-    kill_bar_color = GREEN if deg in ("healthy", "too_early", "unknown", "insufficient_data") else RED
+    kill_bar_color = GREEN if deg in ("healthy", "too_early", "unknown", "insufficient_data", "research") else RED
     kill_bar_width = "100%" if deg != "critical" else "30%"
 
     return html.Div([
@@ -960,6 +1039,79 @@ def _diamond_panel(summary: dict, anim: int = 5) -> html.Div:
     ], className=f"bento-card anim-{anim}")
 
 
+def _emerald_panel(metrics: dict, bankroll: pd.DataFrame,
+                   anim: int = 6) -> html.Div:
+    """EMERALD project panel — NBA sports predictions (simulated bankroll)."""
+    trades = metrics["total_trades"]
+    pnl = metrics["total_pnl"]
+    win_rate = metrics["win_rate"]
+    pnl_color = GREEN if pnl >= 0 else RED
+
+    # Current bankroll from bankroll table
+    current_balance = 0.0
+    if bankroll is not None and not bankroll.empty and "balance" in bankroll.columns:
+        current_balance = float(bankroll["balance"].iloc[-1])
+
+    return html.Div([
+        html.Div([
+            html.Span(f"{PROJECT_ICONS['EMERALD']} ", style={"color": EMERALD_GREEN, "fontSize": "0.9rem"}),
+            html.Span("EMERALD", className="project-name", style={"color": EMERALD_GREEN}),
+            html.Span("RESEARCH", className="health-badge",
+                      style={"color": TEXT_DIM, "borderColor": TEXT_DIM,
+                             "marginLeft": "auto", "float": "right"}),
+        ], style={"display": "flex", "alignItems": "center"}),
+
+        html.Div(className="separator"),
+
+        # Status line
+        html.Div([
+            html.Span("●" if trades > 0 else "○",
+                      style={"color": GREEN if trades > 0 else TEXT_DIM,
+                             "marginRight": "6px"}),
+            html.Span("NBA PREDICTIONS", style={"color": TEXT_DIM, "fontSize": "0.7rem",
+                                                 "letterSpacing": "0.1em"}),
+        ], style={"marginBottom": "12px"}),
+
+        # Metrics grid
+        html.Div([
+            html.Div([
+                html.Div("P&L", className="metric-label"),
+                html.Div(f"${pnl:+,.2f}", style={
+                    "color": pnl_color, "fontSize": "1.1rem", "fontWeight": "600",
+                    "fontVariantNumeric": "tabular-nums",
+                }),
+            ], style={"flex": "1"}),
+            html.Div([
+                html.Div("BANKROLL", className="metric-label"),
+                html.Div(f"${current_balance:,.0f}", style={
+                    "color": GREEN if current_balance >= 1000 else RED,
+                    "fontSize": "1.1rem", "fontWeight": "600",
+                    "fontVariantNumeric": "tabular-nums",
+                }),
+            ], style={"flex": "1"}),
+        ], style={"display": "flex", "gap": "16px", "marginBottom": "8px"}),
+
+        html.Div([
+            html.Div([
+                html.Div("BETS", className="metric-label"),
+                html.Div(str(trades), style={
+                    "color": TEXT, "fontSize": "1.1rem", "fontWeight": "600",
+                    "fontVariantNumeric": "tabular-nums",
+                }),
+            ], style={"flex": "1"}),
+            html.Div([
+                html.Div("WIN RATE", className="metric-label"),
+                html.Div(f"{win_rate:.0%}", style={
+                    "color": GREEN if win_rate > 0.5 else (YELLOW if win_rate > 0.4 else RED),
+                    "fontSize": "1.1rem", "fontWeight": "600",
+                    "fontVariantNumeric": "tabular-nums",
+                }),
+            ], style={"flex": "1"}),
+        ], style={"display": "flex", "gap": "16px"}),
+
+    ], className=f"bento-card anim-{anim}")
+
+
 # ── Dash App ──────────────────────────────────────────────────────────────────
 
 app = dash.Dash(
@@ -992,7 +1144,7 @@ def add_no_cache_headers(response):
     return response
 
 
-ALL_PROJECTS = ["AGATE", "BERYL", "CITRINE", "DIAMOND"]
+ALL_PROJECTS = ["AGATE", "BERYL", "CITRINE", "DIAMOND", "EMERALD"]
 
 app.layout = html.Div([
     dcc.Interval(id="refresh", interval=60_000),
@@ -1061,6 +1213,12 @@ def _update_dashboard_inner(active_filter=None):
     all_trades["DIAMOND"] = diamond_df
     all_metrics["DIAMOND"] = _compute_project_metrics("DIAMOND", diamond_df)
 
+    # EMERALD: predictions DB with pnl + resolved_at
+    emerald_df = _load_emerald_trades()
+    all_trades["EMERALD"] = emerald_df
+    all_metrics["EMERALD"] = _compute_project_metrics("EMERALD", emerald_df)
+
+    emerald_bankroll = _load_emerald_bankroll()
     snapshots = _load_citrine_snapshots()
     diamond_summary = _diamond_summary_from_trades(diamond_df)
 
@@ -1083,8 +1241,10 @@ def _update_dashboard_inner(active_filter=None):
     if not snapshots.empty and "total_equity" in snapshots.columns:
         citrine_equity = float(snapshots["total_equity"].iloc[-1])
 
-    degraded = sum(1 for m in all_metrics.values() if m["degradation"] == "critical")
-    warnings = sum(1 for m in all_metrics.values() if m["degradation"] == "warning")
+    # Exclude EMERALD (research) from system health count
+    live_metrics = {k: v for k, v in all_metrics.items() if k != "EMERALD"}
+    degraded = sum(1 for m in live_metrics.values() if m["degradation"] == "critical")
+    warnings = sum(1 for m in live_metrics.values() if m["degradation"] == "warning")
     health_color = RED if degraded > 0 else (YELLOW if warnings > 0 else GREEN)
     health_label = (f"{degraded} DEGRADED" if degraded > 0
                     else f"{warnings} DRIFT" if warnings > 0
@@ -1109,7 +1269,7 @@ def _update_dashboard_inner(active_filter=None):
         ),
         html.Div(
             _metric_cell("TOTAL TRADES", str(total_trades), TEXT,
-                         sub=f"{active_projects}/{len(all_metrics)} active", anim=3),
+                         sub=f"{active_projects}/{len(all_metrics)} projects", anim=3),
             style={"gridColumn": "span 2"},
         ),
         html.Div(
@@ -1130,27 +1290,26 @@ def _update_dashboard_inner(active_filter=None):
         "marginBottom": "10px",
     })
 
-    # Row 2: Project panels — bento grid (asymmetric)
+    # Row 2: Project panels — 5 panels, auto-wrap (3+2 or 5-across)
     projects_row = html.Div([
         html.Div(
             _project_panel("AGATE", all_metrics["AGATE"], agate_status, anim=2),
-            style={"gridColumn": "span 3"},
         ),
         html.Div(
             _project_panel("BERYL", all_metrics["BERYL"], beryl_status, anim=3),
-            style={"gridColumn": "span 3"},
         ),
         html.Div(
             _project_panel("CITRINE", all_metrics["CITRINE"], {}, anim=4),
-            style={"gridColumn": "span 3"},
         ),
         html.Div(
             _diamond_panel(diamond_summary, anim=5),
-            style={"gridColumn": "span 3"},
+        ),
+        html.Div(
+            _emerald_panel(all_metrics["EMERALD"], emerald_bankroll, anim=6),
         ),
     ], style={
         "display": "grid",
-        "gridTemplateColumns": "repeat(12, 1fr)",
+        "gridTemplateColumns": "repeat(auto-fit, minmax(240px, 1fr))",
         "gap": "10px",
         "marginBottom": "10px",
     })
@@ -1160,7 +1319,7 @@ def _update_dashboard_inner(active_filter=None):
         html.Div([
             html.Div(
                 dcc.Graph(id="equity-chart",
-                          figure=_apply_filter(_build_equity_chart(all_trades, snapshots), active_filter),
+                          figure=_apply_filter(_build_equity_chart(all_trades, snapshots, emerald_bankroll), active_filter),
                           config={"displayModeBar": False},
                           style={"height": "280px"}),
                 className="chart-container",
@@ -1329,7 +1488,7 @@ app.clientside_callback(
         var metricsTime = filterFig(metricsTimeFig, activeProjects);
 
         // Build button styles — dim inactive projects
-        var allProjects = ['AGATE', 'BERYL', 'CITRINE', 'DIAMOND'];
+        var allProjects = ['AGATE', 'BERYL', 'CITRINE', 'DIAMOND', 'EMERALD'];
         var styles = [];
         for (var j = 0; j < allProjects.length; j++) {
             var isActive = activeProjects.indexOf(allProjects[j]) !== -1;
@@ -1348,6 +1507,7 @@ app.clientside_callback(
         Output({"type": "project-toggle", "project": "BERYL"}, "className"),
         Output({"type": "project-toggle", "project": "CITRINE"}, "className"),
         Output({"type": "project-toggle", "project": "DIAMOND"}, "className"),
+        Output({"type": "project-toggle", "project": "EMERALD"}, "className"),
     ],
     [
         Input("project-filter", "data"),

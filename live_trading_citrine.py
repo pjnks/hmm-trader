@@ -42,12 +42,16 @@ from src.citrine_allocator import CitrineAllocator, PortfolioWeight
 from src.notifier import _macos_notify, _pushover_notify, _terminal_bell, notify_trade
 
 # ── Logging ────────────────────────────────────────────────────────────────
+# Explicitly configure root logger — basicConfig is a no-op if any imported
+# module already triggered it.  force=True (Python 3.8+) overrides that.
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)-7s] %(message)s",
+    format="%(asctime)s [%(levelname)-7s] %(name)s: %(message)s",
     datefmt="%H:%M:%S",
+    force=True,
 )
 log = logging.getLogger("citrine_live")
+log.setLevel(logging.INFO)
 
 
 # ── Position sizing ────────────────────────────────────────────────────────
