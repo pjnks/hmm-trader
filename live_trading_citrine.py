@@ -65,9 +65,10 @@ SIGNAL_INTERVAL_S = 24 * 3600
 # ── Portfolio Position Tracker ─────────────────────────────────────────────
 
 class CitrinePosition:
-    """Track a single open position."""
+    """Track a single open position with risk engine metrics (Sprint 9)."""
     def __init__(self, ticker: str, direction: str, shares: float,
-                 entry_price: float, target_weight: float):
+                 entry_price: float, target_weight: float,
+                 entry_atr: float = 0.0, entry_confidence: float = 0.0):
         self.ticker = ticker
         self.direction = direction  # "LONG" or "SHORT"
         self.shares = shares
@@ -75,6 +76,63 @@ class CitrinePosition:
         self.target_weight = target_weight
         self.entry_time = datetime.now(tz=timezone.utc).isoformat()
         self.notional = shares * entry_price
+
+        # Risk engine fields (Sprint 9)
+        self.entry_atr = entry_atr              # ATR at entry — frozen, never updated
+        self.entry_confidence = entry_confidence  # HMM confidence at entry
+        self.prev_confidence = entry_confidence   # previous cycle's confidence (for velocity)
+        self.high_watermark = entry_price         # highest price since entry (LONG)
+        self.low_watermark = entry_price          # lowest price since entry (SHORT)
+        self.mae_pct = 0.0                        # max adverse excursion (% of entry)
+        self.mfe_pct = 0.0                        # max favorable excursion (% of entry)
+        self.mae_atr = 0.0                        # MAE in ATR units
+        self.mfe_atr = 0.0                        # MFE in ATR units
+
+    def update_excursions(self, current_price: float) -> None:
+        """Update MAE/MFE watermarks with latest price."""
+        if self.direction == "LONG":
+            self.high_watermark = max(self.high_watermark, current_price)
+            self.low_watermark = min(self.low_watermark, current_price)
+            # MFE = best unrealized gain
+            self.mfe_pct = max(self.mfe_pct,
+                               (self.high_watermark - self.entry_price) / self.entry_price)
+            # MAE = worst unrealized drawdown (negative)
+            adverse = (self.low_watermark - self.entry_price) / self.entry_price
+            if adverse < self.mae_pct:
+                self.mae_pct = adverse
+        else:  # SHORT
+            self.low_watermark = min(self.low_watermark, current_price)
+            self.high_watermark = max(self.high_watermark, current_price)
+            self.mfe_pct = max(self.mfe_pct,
+                               (self.entry_price - self.low_watermark) / self.entry_price)
+            adverse = (self.entry_price - self.high_watermark) / self.entry_price
+            if adverse < self.mae_pct:
+                self.mae_pct = adverse
+
+        # ATR-unit excursions (if entry_atr is available)
+        if self.entry_atr > 0:
+            self.mae_atr = self.mae_pct * self.entry_price / self.entry_atr
+            self.mfe_atr = self.mfe_pct * self.entry_price / self.entry_atr
+
+    def chandelier_stop(self, multiplier: float = 2.0) -> float | None:
+        """Compute Chandelier trailing stop price. Returns None if no ATR."""
+        if self.entry_atr <= 0:
+            return None
+        if self.direction == "LONG":
+            return self.high_watermark - (self.entry_atr * multiplier)
+        else:  # SHORT
+            return self.low_watermark + (self.entry_atr * multiplier)
+
+    def check_confidence_velocity(
+        self, current_confidence: float, current_price: float, prev_close: float,
+        threshold: float = -0.25,
+    ) -> bool:
+        """Return True if confidence velocity exit triggers.
+        Condition: confidence dropped > threshold from entry AND close < prev close."""
+        delta = current_confidence - self.entry_confidence
+        if delta < threshold and current_price < prev_close:
+            return True
+        return False
 
 
 # ── Live Engine ────────────────────────────────────────────────────────────
@@ -121,6 +179,12 @@ class CitrineLiveEngine:
             cooldown_mode=self.cooldown_mode,
         )
 
+        # Last scan regime counts (carried forward for intraday snapshots)
+        self._last_bull_count = 0
+        self._last_bear_count = 0
+        self._last_chop_count = 0
+        self._last_cash_pct = 0.0
+
         # Kill-switch grace period: track restart time and completed cycles
         # After a restart, skip kill-switch checks until at least
         # KILL_SWITCH_GRACE_CYCLES daily cycles have completed, giving new
@@ -136,6 +200,12 @@ class CitrineLiveEngine:
                  f"({'TEST' if test_mode else 'LIVE'})")
         log.info(f"Long-only: {long_only} | Cooldown: {cooldown_mode}")
         log.info(f"Kill-switch grace period: {self._KILL_SWITCH_GRACE_CYCLES} cycles")
+
+    # ── Risk Engine Constants (Sprint 9) ─────────────────────────────────────
+    CHANDELIER_MULTIPLIER = 2.0     # MAE calibration: 95th pctile = 1.793 ATR × 1.1
+    CONF_VELOCITY_THRESHOLD = -0.25 # exit if confidence drops > 0.25 from entry
+    ATR_RISK_BUDGET = 0.01          # 1% of capital risked per position via ATR sizing
+    ATR_MAX_NOTIONAL_PCT = 0.15     # 15% of capital max per position
 
     def _init_db(self):
         """Initialize SQLite database for CITRINE trade and snapshot logging."""
@@ -159,6 +229,21 @@ class CitrineLiveEngine:
                     confidence REAL
                 )
             """)
+            # Sprint 9: add risk engine columns (safe if already exist)
+            for col, typ in [
+                ("entry_atr", "REAL"),
+                ("exit_reason", "TEXT"),
+                ("mae_pct", "REAL"),
+                ("mfe_pct", "REAL"),
+                ("mae_atr", "REAL"),
+                ("mfe_atr", "REAL"),
+                ("entry_confidence", "REAL"),
+                ("hold_days", "INTEGER"),
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE trades ADD COLUMN {col} {typ}")
+                except sqlite3.OperationalError:
+                    pass  # column already exists
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS portfolio_snapshots (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -222,9 +307,15 @@ class CitrineLiveEngine:
                         shares=shares,
                         entry_price=entry,
                         target_weight=0,  # Will be recalculated on next cycle
+                        entry_atr=info.get("entry_atr", 0.0),
+                        entry_confidence=info.get("entry_confidence", 0.0),
                     )
                     # Override auto-set entry_time and notional
                     pos.notional = shares * entry
+                    # Restore watermarks (use current price if available)
+                    current = info.get("current", entry)
+                    pos.high_watermark = max(entry, current)
+                    pos.low_watermark = min(entry, current)
                     self.positions[ticker] = pos
                     restored += 1
 
@@ -351,7 +442,11 @@ class CitrineLiveEngine:
         log.info(f"  Scan complete: {bull_count} BULL | {bear_count} BEAR | "
                  f"{chop_count} CHOP | {err_count} errors")
 
-        # Step 1b: Fetch alt-data boost (insider trading signals)
+        # Step 1b: Risk engine exits — Chandelier stop + confidence velocity
+        # Run BEFORE allocator so the allocator doesn't try to re-enter
+        self._check_risk_exits(scans)
+
+        # Step 1c: Fetch alt-data boost (insider trading signals)
         alt_data_boosts = self._fetch_alt_data_boosts(scans)
 
         # Step 2: Allocate portfolio weights
@@ -377,7 +472,11 @@ class CitrineLiveEngine:
         # Step 4: Update allocator state
         self.allocator.update_holdings(weights)
 
-        # Step 5: Log portfolio snapshot
+        # Step 5: Log portfolio snapshot + cache regime counts for intraday snapshots
+        self._last_bull_count = bull_count
+        self._last_bear_count = bear_count
+        self._last_chop_count = chop_count
+        self._last_cash_pct = cash_pct
         self._log_snapshot(scans, cash_pct, bull_count, bear_count, chop_count)
 
         # Step 6: Send summary notification
@@ -385,6 +484,89 @@ class CitrineLiveEngine:
 
         # Print portfolio summary
         self._print_portfolio_summary()
+
+    def _check_risk_exits(self, scans: list[TickerScan]) -> None:
+        """
+        Sprint 9 risk engine: check Chandelier stops and confidence velocity
+        for all held positions. Force-exits before the allocator runs.
+
+        Two independent exit triggers:
+          1. Chandelier: price < high_watermark - (entry_atr × 2.0)
+          2. Conf velocity: confidence dropped >0.25 from entry AND price declining
+        """
+        if not self.positions:
+            return
+
+        scan_map = {s.ticker: s for s in scans if s.error is None}
+        exits_triggered: list[tuple[str, float, str]] = []  # (ticker, price, reason)
+
+        for ticker, pos in list(self.positions.items()):
+            scan = scan_map.get(ticker)
+            if not scan or scan.current_price <= 0:
+                continue
+
+            price = scan.current_price
+
+            # Update MAE/MFE excursions with latest price
+            pos.update_excursions(price)
+
+            # 1. Chandelier trailing stop
+            stop = pos.chandelier_stop(self.CHANDELIER_MULTIPLIER)
+            if stop is not None:
+                if pos.direction == "LONG" and price < stop:
+                    exits_triggered.append((
+                        ticker, price,
+                        f"chandelier_stop (stop=${stop:.2f}, "
+                        f"HWM=${pos.high_watermark:.2f}, "
+                        f"ATR=${pos.entry_atr:.2f})"
+                    ))
+                    continue
+                elif pos.direction == "SHORT" and price > stop:
+                    exits_triggered.append((
+                        ticker, price,
+                        f"chandelier_stop (stop=${stop:.2f}, "
+                        f"LWM=${pos.low_watermark:.2f})"
+                    ))
+                    continue
+
+            # 2. Confidence velocity exit
+            prev_close = price  # approximate — use scan price as proxy
+            if pos.check_confidence_velocity(
+                scan.confidence, price, prev_close,
+                self.CONF_VELOCITY_THRESHOLD,
+            ):
+                exits_triggered.append((
+                    ticker, price,
+                    f"conf_velocity (entry={pos.entry_confidence:.2f}→"
+                    f"now={scan.confidence:.2f}, "
+                    f"Δ={scan.confidence - pos.entry_confidence:+.2f})"
+                ))
+                continue
+
+            # Update prev_confidence for next cycle
+            pos.prev_confidence = scan.confidence
+
+        # Execute risk exits
+        if exits_triggered:
+            log.info(f"\n  [RISK ENGINE] {len(exits_triggered)} exit(s) triggered:")
+            for ticker, price, reason in exits_triggered:
+                log.warning(f"  🛑 {ticker}: {reason}")
+                try:
+                    self._force_exit_single(ticker, price, reason=reason)
+                except Exception as e:
+                    log.error(f"  [RISK] Failed to exit {ticker}: {e}")
+
+            # Notify
+            summary = ", ".join(f"{t}" for t, _, _ in exits_triggered)
+            _pushover_notify(
+                "CITRINE Risk Exit",
+                f"{len(exits_triggered)} exits: {summary}",
+                priority=0,
+            )
+        else:
+            held_with_atr = sum(1 for p in self.positions.values() if p.entry_atr > 0)
+            log.info(f"  [RISK ENGINE] All {len(self.positions)} positions OK "
+                     f"({held_with_atr} with Chandelier stops)")
 
     def _fetch_alt_data_boosts(self, scans) -> dict[str, float]:
         """
@@ -486,7 +668,7 @@ class CitrineLiveEngine:
                     log.error(f"[CITRINE] ERROR: Failed to scale {w.ticker}: {e}")
 
     def _enter_position(self, w: PortfolioWeight, scan_map: dict):
-        """Enter a new position."""
+        """Enter a new position with ATR-based sizing (Sprint 9 risk engine)."""
         # Deduplication guard: skip if already holding this ticker
         if w.ticker in self.positions:
             log.info(f"  Skip {w.ticker}: already held (dedup guard)")
@@ -499,7 +681,23 @@ class CitrineLiveEngine:
 
         price = scan.current_price
         fill_price = self._simulate_fill(price, w.direction)
-        notional = min(w.notional_usd, self.cash)
+
+        # ATR-based position sizing (Sprint 9): dollar_risk / (ATR × multiplier)
+        # Falls back to allocator-provided notional if ATR unavailable
+        entry_atr = getattr(scan, "current_atr", 0.0) or 0.0
+        if entry_atr > 0:
+            equity = self.cash + sum(
+                p.shares * p.entry_price for p in self.positions.values())
+            dollar_risk = equity * self.ATR_RISK_BUDGET
+            stop_distance = entry_atr * self.CHANDELIER_MULTIPLIER
+            atr_notional = (dollar_risk / stop_distance) * fill_price
+            max_notional = equity * self.ATR_MAX_NOTIONAL_PCT
+            notional = min(atr_notional, max_notional, w.notional_usd, self.cash)
+            log.info(f"  [ATR sizing] {w.ticker}: ATR=${entry_atr:.2f}, "
+                     f"risk=${dollar_risk:.0f}, atr_notional=${atr_notional:.0f} "
+                     f"→ ${notional:.0f}")
+        else:
+            notional = min(w.notional_usd, self.cash)
 
         if notional < 100:  # Minimum position size $100
             log.info(f"  Skip {w.ticker}: notional ${notional:.0f} below minimum")
@@ -508,13 +706,15 @@ class CitrineLiveEngine:
         shares = notional / fill_price
 
         try:
-            # Create position
+            # Create position with risk engine fields
             pos = CitrinePosition(
                 ticker=w.ticker,
                 direction=w.direction,
                 shares=shares,
                 entry_price=fill_price,
                 target_weight=w.scaled_weight,
+                entry_atr=entry_atr,
+                entry_confidence=scan.confidence if scan else 0.0,
             )
 
             # Update cash
@@ -530,16 +730,17 @@ class CitrineLiveEngine:
 
             notify_trade("BUY", shares, fill_price, ticker=w.ticker, project="CITRINE")
 
-            # Log trade
+            # Log trade with entry ATR
             self._log_trade(w.ticker, "ENTER", w.direction, shares, fill_price,
-                            notional, None, None, w, scan)
+                            notional, None, None, w, scan, position=pos)
         except Exception as e:
             log.error(f"[CITRINE] ERROR: Failed to complete entry for {w.ticker}: {e}")
             # Roll back: remove position if it was added
             self.positions.pop(w.ticker, None)
 
-    def _exit_position(self, w: PortfolioWeight, scan_map: dict):
-        """Exit an existing position."""
+    def _exit_position(self, w: PortfolioWeight, scan_map: dict,
+                       exit_reason: str = "regime_flip"):
+        """Exit an existing position with risk metrics (Sprint 9)."""
         pos = self.positions.get(w.ticker)
         if pos is None:
             return
@@ -557,6 +758,9 @@ class CitrineLiveEngine:
             fill_price = self._simulate_fill(price,
                                              "SELL" if pos.direction == "LONG" else "BUY")
 
+            # Final excursion update before exit
+            pos.update_excursions(fill_price)
+
             # Calculate P&L
             if pos.direction == "LONG":
                 pnl = pos.shares * (fill_price - pos.entry_price)
@@ -571,19 +775,21 @@ class CitrineLiveEngine:
             # Return cash
             self.cash += (notional - fee / 2)  # Only exit-side fee on cash return
 
-            # Remove position only after successful exit
-            del self.positions[w.ticker]
-
             emoji = "✅" if pnl >= 0 else "❌"
             log.info(f"  {emoji} EXIT {w.ticker} {pos.direction}: "
                      f"{pos.shares:.2f} shares @ ${fill_price:.2f} | "
-                     f"P&L: ${pnl:.2f} ({pnl_pct:+.2f}%)")
+                     f"P&L: ${pnl:.2f} ({pnl_pct:+.2f}%) | "
+                     f"MAE:{pos.mae_pct:+.1%} MFE:{pos.mfe_pct:+.1%} [{exit_reason}]")
 
             notify_trade("SELL", pos.shares, fill_price, pnl=pnl, ticker=w.ticker, project="CITRINE")
 
-            # Log trade
+            # Log trade with risk metrics
             self._log_trade(w.ticker, "EXIT", pos.direction, pos.shares,
-                            fill_price, notional, pnl, pnl_pct, w, scan)
+                            fill_price, notional, pnl, pnl_pct, w, scan,
+                            exit_reason=exit_reason, position=pos)
+
+            # Remove position only after successful logging
+            del self.positions[w.ticker]
         except Exception as e:
             log.error(f"[CITRINE] ERROR: Failed to complete exit for {w.ticker}: {e}")
 
@@ -643,20 +849,42 @@ class CitrineLiveEngine:
         shares: float, price: float, notional: float,
         pnl: float | None, pnl_pct: float | None,
         weight: PortfolioWeight, scan: TickerScan | None,
+        exit_reason: str = "",
+        position: CitrinePosition | None = None,
     ):
-        """Log a trade to SQLite."""
+        """Log a trade to SQLite with risk engine metrics (Sprint 9)."""
         now = datetime.now(tz=timezone.utc).isoformat()
         side = "BUY" if direction == "LONG" else "SELL"
-        if action == "EXIT":
+        if action in ("EXIT", "STOP_EXIT"):
             side = "SELL" if direction == "LONG" else "BUY"
+
+        # Extract risk metrics from position (available on exits)
+        entry_atr = getattr(position, "entry_atr", None) if position else None
+        mae_pct = getattr(position, "mae_pct", None) if position else None
+        mfe_pct = getattr(position, "mfe_pct", None) if position else None
+        mae_atr = getattr(position, "mae_atr", None) if position else None
+        mfe_atr = getattr(position, "mfe_atr", None) if position else None
+        entry_conf = getattr(position, "entry_confidence", None) if position else None
+
+        # Hold duration
+        hold_days = None
+        if position and hasattr(position, "entry_time"):
+            try:
+                entry_dt = datetime.fromisoformat(
+                    position.entry_time.replace("Z", "+00:00"))
+                hold_days = (datetime.now(tz=timezone.utc) - entry_dt).days
+            except (ValueError, TypeError):
+                pass
 
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """INSERT INTO trades
                 (timestamp, ticker, side, direction, action, shares, price,
                  notional, pnl, pnl_pct, signal_strength, portfolio_weight,
-                 regime, confidence)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 regime, confidence, entry_atr, exit_reason, mae_pct, mfe_pct,
+                 mae_atr, mfe_atr, entry_confidence, hold_days)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     now, ticker, side, direction, action,
                     round(shares, 4), round(price, 2),
@@ -667,6 +895,14 @@ class CitrineLiveEngine:
                     round(weight.scaled_weight, 4) if weight else 0,
                     scan.regime_cat if scan else "",
                     round(scan.confidence, 3) if scan else 0,
+                    round(entry_atr, 4) if entry_atr else None,
+                    exit_reason or None,
+                    round(mae_pct, 6) if mae_pct is not None else None,
+                    round(mfe_pct, 6) if mfe_pct is not None else None,
+                    round(mae_atr, 4) if mae_atr is not None else None,
+                    round(mfe_atr, 4) if mfe_atr is not None else None,
+                    round(entry_conf, 4) if entry_conf is not None else None,
+                    hold_days,
                 ),
             )
             conn.commit()
@@ -700,6 +936,13 @@ class CitrineLiveEngine:
                     "entry": round(pos.entry_price, 2),
                     "current": round(current_price, 2),
                     "value": round(value, 2),
+                    # Risk engine fields (Sprint 9)
+                    "entry_atr": round(pos.entry_atr, 4) if pos.entry_atr else 0.0,
+                    "entry_confidence": round(pos.entry_confidence, 4),
+                    "high_watermark": round(pos.high_watermark, 2),
+                    "low_watermark": round(pos.low_watermark, 2),
+                    "mae_pct": round(pos.mae_pct, 6),
+                    "mfe_pct": round(pos.mfe_pct, 6),
                 }
 
             total_equity = self.cash + invested
@@ -728,6 +971,67 @@ class CitrineLiveEngine:
                      f"(cash ${self.cash:,.0f} + invested ${invested:,.0f})")
         except Exception as e:
             log.error(f"[CITRINE] ERROR: Failed to log portfolio snapshot: {e}")
+
+    def _log_intraday_snapshot(self, price_map: dict[str, float]) -> None:
+        """Lightweight snapshot using prices already fetched during risk check.
+
+        Reuses cached regime counts from the last full scan (regimes only change
+        on daily bar close, so carrying forward is correct). This enables the
+        dashboard to show intraday P&L updates without re-running HMMs.
+        """
+        try:
+            now = datetime.now(tz=timezone.utc).isoformat()
+
+            invested = 0.0
+            pos_data = {}
+            for ticker, pos in self.positions.items():
+                current_price = price_map.get(ticker, pos.entry_price)
+                if pos.direction == "LONG":
+                    value = pos.shares * current_price
+                else:
+                    value = pos.notional + (pos.entry_price - current_price) * pos.shares
+                invested += value
+                pos_data[ticker] = {
+                    "direction": pos.direction,
+                    "shares": round(pos.shares, 4),
+                    "entry": round(pos.entry_price, 2),
+                    "current": round(current_price, 2),
+                    "value": round(value, 2),
+                    "entry_atr": round(pos.entry_atr, 4) if pos.entry_atr else 0.0,
+                    "entry_confidence": round(pos.entry_confidence, 4),
+                    "high_watermark": round(pos.high_watermark, 2),
+                    "low_watermark": round(pos.low_watermark, 2),
+                    "mae_pct": round(pos.mae_pct, 6),
+                    "mfe_pct": round(pos.mfe_pct, 6),
+                }
+
+            total_equity = self.cash + invested
+            self._last_computed_equity = total_equity
+            num_long = sum(1 for p in self.positions.values() if p.direction == "LONG")
+            num_short = sum(1 for p in self.positions.values() if p.direction == "SHORT")
+
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    """INSERT INTO portfolio_snapshots
+                    (timestamp, total_equity, cash, invested, num_positions,
+                     num_long, num_short, bull_count, bear_count, chop_count,
+                     positions_json, cash_pct)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        now, round(total_equity, 2), round(self.cash, 2),
+                        round(invested, 2), len(self.positions),
+                        num_long, num_short,
+                        self._last_bull_count, self._last_bear_count,
+                        self._last_chop_count,
+                        json.dumps(pos_data), round(self._last_cash_pct, 4),
+                    ),
+                )
+                conn.commit()
+
+            log.info(f"  [Intraday] Snapshot: ${total_equity:,.2f} "
+                     f"(cash ${self.cash:,.0f} + invested ${invested:,.0f})")
+        except Exception as e:
+            log.error(f"[CITRINE] ERROR: Failed to log intraday snapshot: {e}")
 
     def _print_portfolio_summary(self):
         """Print current holdings to terminal."""
@@ -772,17 +1076,33 @@ class CitrineLiveEngine:
     # ── Sprint 3.5: Intra-Day Risk Monitoring ──────────────────────────────
 
     def _sleep_with_risk_checks(self, total_seconds: int) -> None:
-        """Sleep for total_seconds but wake every 4 hours to check intraday risk."""
-        INTRADAY_INTERVAL = 4 * 3600  # 4 hours
+        """Sleep for total_seconds, waking for risk checks + intraday snapshots.
+
+        During US market hours (9:30am-4pm ET): check every 1 hour
+        Outside market hours: check every 4 hours
+        Each check fetches current prices, runs risk logic, and writes a
+        snapshot so the dashboard shows intraday P&L updates.
+        """
+        MARKET_INTERVAL = 1 * 3600     # 1 hour during market hours
+        OFF_HOURS_INTERVAL = 4 * 3600  # 4 hours outside market hours
         remaining = total_seconds
 
         while remaining > 0:
-            sleep_time = min(remaining, INTRADAY_INTERVAL)
+            # Determine interval based on whether US market is open
+            now_utc = datetime.now(tz=timezone.utc)
+            # US Eastern: UTC-4 (EDT) or UTC-5 (EST)
+            # Approximate: EDT Mar-Nov, EST Nov-Mar
+            et_offset = -4 if 3 <= now_utc.month <= 10 else -5
+            et_hour = (now_utc.hour + et_offset) % 24
+            is_market_hours = (9 <= et_hour < 16) and (now_utc.weekday() < 5)
+
+            interval = MARKET_INTERVAL if is_market_hours else OFF_HOURS_INTERVAL
+            sleep_time = min(remaining, interval)
             time.sleep(sleep_time)
             remaining -= sleep_time
 
             if remaining > 0:
-                # Still between daily cycles — run intraday risk check
+                # Still between daily cycles — run intraday risk check + snapshot
                 self._check_intraday_risk()
 
     # ── Trailing stop-loss threshold ─────────────────────────────────────
@@ -809,12 +1129,17 @@ class CitrineLiveEngine:
         total_unrealized = 0.0
         warnings = []
         stop_loss_exits = []  # tickers to force-exit
+        intraday_prices: dict[str, float] = {}  # for snapshot
 
         for ticker, pos in list(self.positions.items()):
             from src.data_fetcher import fetch_latest_price
             current_price = fetch_latest_price(ticker)
             if current_price is None or current_price <= 0:
                 current_price = pos.entry_price  # fallback
+            intraday_prices[ticker] = current_price
+
+            # Update excursion watermarks (Sprint 9)
+            pos.update_excursions(current_price)
 
             # Compute unrealized P&L
             if pos.direction == "LONG":
@@ -825,7 +1150,19 @@ class CitrineLiveEngine:
             unrealized_pct = unrealized / pos.notional if pos.notional > 0 else 0
             total_unrealized += unrealized
 
-            # Trailing stop-loss: force-exit if position loss exceeds threshold
+            # Chandelier stop check (Sprint 9) — takes priority over pct stop
+            stop = pos.chandelier_stop(self.CHANDELIER_MULTIPLIER)
+            if stop is not None:
+                if ((pos.direction == "LONG" and current_price < stop) or
+                        (pos.direction == "SHORT" and current_price > stop)):
+                    msg = (f"  [CHANDELIER] {ticker} breached stop ${stop:.2f} "
+                           f"(price=${current_price:.2f}, ATR=${pos.entry_atr:.2f})")
+                    log.warning(msg)
+                    warnings.append(msg)
+                    stop_loss_exits.append((ticker, current_price))
+                    continue
+
+            # Fallback pct trailing stop (for positions without ATR)
             if unrealized_pct < self.TRAILING_STOP_PCT:
                 msg = (f"  [STOP-LOSS] {ticker} hit {unrealized_pct:.1%} "
                        f"(${unrealized:.2f}) — breached {self.TRAILING_STOP_PCT:.0%} stop")
@@ -884,6 +1221,10 @@ class CitrineLiveEngine:
             self._emergency_exit_all(reason)
             return
 
+        # Log intraday snapshot for dashboard visibility
+        if intraday_prices:
+            self._log_intraday_snapshot(intraday_prices)
+
         # Send notifications for warnings
         if warnings:
             _macos_notify("CITRINE Risk Warning", "\n".join(warnings))
@@ -893,13 +1234,16 @@ class CitrineLiveEngine:
 
     def _force_exit_single(self, ticker: str, current_price: float,
                            reason: str = "stop_loss") -> None:
-        """Force-exit a single position (trailing stop-loss or risk limit)."""
+        """Force-exit a single position (Chandelier stop, conf velocity, or risk limit)."""
         pos = self.positions.get(ticker)
         if pos is None:
             return
 
         fill_price = self._simulate_fill(
             current_price, "SELL" if pos.direction == "LONG" else "BUY")
+
+        # Final excursion update
+        pos.update_excursions(fill_price)
 
         if pos.direction == "LONG":
             pnl = pos.shares * (fill_price - pos.entry_price)
@@ -912,12 +1256,12 @@ class CitrineLiveEngine:
         pnl_pct = (pnl / pos.notional) * 100
 
         self.cash += (notional - fee / 2)
-        del self.positions[ticker]
 
         log.warning(f"  🛑 STOP-EXIT {ticker}: {pos.shares:.2f} shares @ ${fill_price:.2f} "
-                    f"P&L: ${pnl:+.2f} ({pnl_pct:+.2f}%) [{reason}]")
+                    f"P&L: ${pnl:+.2f} ({pnl_pct:+.2f}%) | "
+                    f"MAE:{pos.mae_pct:+.1%} MFE:{pos.mfe_pct:+.1%} [{reason}]")
 
-        # Log to DB
+        # Log to DB with risk metrics
         scan_stub = TickerScan(
             ticker=ticker, regime_cat="STOP", confidence=0.0,
             persistence=0, realized_vol=0.0, confirmations=0,
@@ -930,7 +1274,10 @@ class CitrineLiveEngine:
             days_held=0, action="STOP_EXIT",
         )
         self._log_trade(ticker, "STOP_EXIT", pos.direction, pos.shares,
-                        fill_price, notional, pnl, pnl_pct, w_stub, scan_stub)
+                        fill_price, notional, pnl, pnl_pct, w_stub, scan_stub,
+                        exit_reason=reason, position=pos)
+
+        del self.positions[ticker]
 
     def _emergency_exit_all(self, reason: str) -> None:
         """Emergency exit all positions when kill-switch triggers."""

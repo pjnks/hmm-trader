@@ -585,6 +585,7 @@ CHART_LAYOUT = dict(
     plot_bgcolor="rgba(0,0,0,0)",
     font=dict(family="JetBrains Mono, monospace", color=TEXT_DIM, size=10),
     margin=dict(l=48, r=16, t=36, b=32),
+    uirevision="default",
     legend=dict(
         orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
         font=dict(size=9, color=TEXT_DIM),
@@ -603,59 +604,77 @@ CHART_LAYOUT = dict(
 )
 
 
+STARTING_CAPITAL = {
+    "AGATE":   10_000.0,
+    "BERYL":   10_000.0,
+    "CITRINE": 25_000.0,
+    "DIAMOND":  1_000.0,
+    "EMERALD":  1_000.0,
+}
+
+
 def _build_equity_chart(all_trades: dict[str, pd.DataFrame],
                         snapshots: pd.DataFrame,
                         emerald_bankroll: pd.DataFrame | None = None) -> go.Figure:
+    """Indexed equity chart — all projects normalized to base 100."""
     fig = go.Figure()
     fig.update_layout(
         **CHART_LAYOUT,
-        title=dict(text="EQUITY CURVE", font=dict(size=10, color=TEXT_DIM)),
+        title=dict(text="INDEXED EQUITY  (BASE = 100)", font=dict(size=10, color=TEXT_DIM)),
         height=280,
-        yaxis_title=dict(text="P&L ($)", font=dict(size=9)),
+        yaxis_title=dict(text="Index", font=dict(size=9)),
     )
 
-    # CITRINE from snapshots
+    # Reference line at 100
+    fig.add_hline(y=100, line_dash="dot", line_color="rgba(0, 232, 255, 0.15)", line_width=1)
+
+    indexed_series = {}
+
+    # CITRINE from snapshots (absolute equity → indexed)
     if not snapshots.empty and "total_equity" in snapshots.columns:
-        y = snapshots["total_equity"] - 25000
+        capital = STARTING_CAPITAL["CITRINE"]
+        y = (snapshots["total_equity"] / capital) * 100
         fig.add_trace(go.Scatter(
             x=snapshots["timestamp"], y=y,
             name="CITRINE", line=dict(color=ORANGE, width=1.5),
-            fill="tozeroy", fillcolor="rgba(255, 138, 80, 0.05)",
         ))
+        daily = pd.Series(y.values, index=snapshots["timestamp"]).resample("D").last().dropna()
+        indexed_series["CITRINE"] = daily
 
-    # EMERALD from bankroll (like CITRINE from snapshots)
+    # EMERALD from bankroll (absolute balance → indexed)
     if emerald_bankroll is not None and not emerald_bankroll.empty and "balance" in emerald_bankroll.columns:
-        y = emerald_bankroll["balance"] - 1000  # started from $1k
+        capital = STARTING_CAPITAL["EMERALD"]
+        y = (emerald_bankroll["balance"] / capital) * 100
         fig.add_trace(go.Scatter(
             x=emerald_bankroll["timestamp"], y=y,
             name="EMERALD", line=dict(color=EMERALD_GREEN, width=1.5),
-            fill="tozeroy", fillcolor="rgba(80, 250, 123, 0.05)",
         ))
+        daily = pd.Series(y.values, index=emerald_bankroll["timestamp"]).resample("D").last().dropna()
+        indexed_series["EMERALD"] = daily
 
-    # AGATE / BERYL / DIAMOND from cumulative P&L
+    # AGATE / BERYL / DIAMOND from cumulative P&L → indexed
     for project in ["AGATE", "BERYL", "DIAMOND"]:
         df = all_trades.get(project, pd.DataFrame())
         if df.empty or "pnl" not in df.columns:
             continue
         df = df.sort_values("timestamp")
+        capital = STARTING_CAPITAL.get(project, 10_000.0)
+        cum_pnl = df["pnl"].cumsum()
+        y = ((capital + cum_pnl) / capital) * 100
         fig.add_trace(go.Scatter(
-            x=df["timestamp"], y=df["pnl"].cumsum(),
+            x=df["timestamp"], y=y,
             name=project, line=dict(color=PROJECT_COLORS[project], width=1.5),
         ))
+        daily = pd.Series(y.values, index=df["timestamp"]).resample("D").last().dropna()
+        indexed_series[project] = daily
 
-    # Combined
-    all_pnl_series = []
-    for project, df in all_trades.items():
-        if df.empty or "pnl" not in df.columns:
-            continue
-        daily = df.set_index("timestamp").resample("D")["pnl"].sum()
-        all_pnl_series.append(daily)
-
-    if all_pnl_series:
-        combined = pd.concat(all_pnl_series, axis=1).fillna(0).sum(axis=1).cumsum()
+    # Combined indexed (equal-weighted average of all projects)
+    if indexed_series:
+        combined = pd.concat(indexed_series.values(), axis=1).ffill().dropna(how="all")
         if not combined.empty:
+            avg = combined.mean(axis=1)
             fig.add_trace(go.Scatter(
-                x=combined.index, y=combined.values,
+                x=avg.index, y=avg.values,
                 name="COMBINED", line=dict(color=CYAN, width=2, dash="dot"),
             ))
 
@@ -928,6 +947,21 @@ def _project_panel(project: str, metrics: dict, status: dict,
             }),
         ], style={"marginBottom": "12px"}) if regime != "—" else html.Div(),
 
+        # Index 100 line
+        html.Div([
+            html.Span("INDEX ", style={"color": TEXT_MUTED, "fontSize": "0.6rem",
+                                        "letterSpacing": "0.1em"}),
+            html.Span(f"{metrics.get('index_100', 100.0):.1f}", style={
+                "color": GREEN if metrics.get("index_100", 100) >= 100 else RED,
+                "fontSize": "1.3rem", "fontWeight": "700",
+                "fontVariantNumeric": "tabular-nums",
+            }),
+            html.Span(f"  {metrics.get('index_100', 100.0) - 100:+.1f}%", style={
+                "color": GREEN if metrics.get("index_100", 100) >= 100 else RED,
+                "fontSize": "0.7rem", "fontWeight": "400",
+            }),
+        ], style={"marginBottom": "10px"}),
+
         # Metrics grid (2x2)
         html.Div([
             html.Div([
@@ -984,7 +1018,8 @@ def _project_panel(project: str, metrics: dict, status: dict,
     ], className=f"bento-card anim-{anim}")
 
 
-def _diamond_panel(summary: dict, anim: int = 5) -> html.Div:
+def _diamond_panel(summary: dict, index_100: float = 100.0,
+                   anim: int = 5) -> html.Div:
     """DIAMOND project panel (different data structure)."""
     status = summary.get("status", "unknown")
     trades = summary.get("trades", 0)
@@ -1009,6 +1044,21 @@ def _diamond_panel(summary: dict, anim: int = 5) -> html.Div:
             html.Span(status.upper(), style={"color": TEXT_DIM, "fontSize": "0.7rem",
                                               "letterSpacing": "0.1em"}),
         ], style={"marginBottom": "12px"}),
+
+        # Index 100 line
+        html.Div([
+            html.Span("INDEX ", style={"color": TEXT_MUTED, "fontSize": "0.6rem",
+                                        "letterSpacing": "0.1em"}),
+            html.Span(f"{index_100:.1f}", style={
+                "color": GREEN if index_100 >= 100 else RED,
+                "fontSize": "1.3rem", "fontWeight": "700",
+                "fontVariantNumeric": "tabular-nums",
+            }),
+            html.Span(f"  {index_100 - 100:+.1f}%", style={
+                "color": GREEN if index_100 >= 100 else RED,
+                "fontSize": "0.7rem", "fontWeight": "400",
+            }),
+        ], style={"marginBottom": "10px"}),
 
         html.Div([
             html.Div([
@@ -1043,14 +1093,16 @@ def _emerald_panel(metrics: dict, bankroll: pd.DataFrame,
                    anim: int = 6) -> html.Div:
     """EMERALD project panel — NBA sports predictions (simulated bankroll)."""
     trades = metrics["total_trades"]
-    pnl = metrics["total_pnl"]
     win_rate = metrics["win_rate"]
-    pnl_color = GREEN if pnl >= 0 else RED
 
-    # Current bankroll from bankroll table
-    current_balance = 0.0
+    # Current bankroll from bankroll table (authoritative for P&L)
+    current_balance = 1000.0
     if bankroll is not None and not bankroll.empty and "balance" in bankroll.columns:
         current_balance = float(bankroll["balance"].iloc[-1])
+
+    # P&L derived from bankroll (not raw prediction sums, which are uncapped/inflated)
+    pnl = current_balance - 1000.0
+    pnl_color = GREEN if pnl >= 0 else RED
 
     return html.Div([
         html.Div([
@@ -1071,6 +1123,21 @@ def _emerald_panel(metrics: dict, bankroll: pd.DataFrame,
             html.Span("NBA PREDICTIONS", style={"color": TEXT_DIM, "fontSize": "0.7rem",
                                                  "letterSpacing": "0.1em"}),
         ], style={"marginBottom": "12px"}),
+
+        # Index 100 line
+        html.Div([
+            html.Span("INDEX ", style={"color": TEXT_MUTED, "fontSize": "0.6rem",
+                                        "letterSpacing": "0.1em"}),
+            html.Span(f"{metrics.get('index_100', 100.0):.1f}", style={
+                "color": GREEN if metrics.get("index_100", 100) >= 100 else RED,
+                "fontSize": "1.3rem", "fontWeight": "700",
+                "fontVariantNumeric": "tabular-nums",
+            }),
+            html.Span(f"  {metrics.get('index_100', 100.0) - 100:+.1f}%", style={
+                "color": GREEN if metrics.get("index_100", 100) >= 100 else RED,
+                "fontSize": "0.7rem", "fontWeight": "400",
+            }),
+        ], style={"marginBottom": "10px"}),
 
         # Metrics grid
         html.Div([
@@ -1225,8 +1292,31 @@ def _update_dashboard_inner(active_filter=None):
     agate_status = _load_status("agate_status.json")
     beryl_status = _load_status("beryl_status.json")
 
-    # Aggregates
-    total_pnl = sum(m["total_pnl"] for m in all_metrics.values())
+    # Compute indexed equity (base 100) for each project
+    for project, df in all_trades.items():
+        capital = STARTING_CAPITAL.get(project, 10_000.0)
+        if project == "CITRINE" and not snapshots.empty and "total_equity" in snapshots.columns:
+            idx = (float(snapshots["total_equity"].iloc[-1]) / capital) * 100
+        elif project == "EMERALD":
+            bal = 1000.0
+            if emerald_bankroll is not None and not emerald_bankroll.empty and "balance" in emerald_bankroll.columns:
+                bal = float(emerald_bankroll["balance"].iloc[-1])
+            idx = (bal / capital) * 100
+        elif not df.empty and "pnl" in df.columns:
+            idx = ((capital + float(df["pnl"].sum())) / capital) * 100
+        else:
+            idx = 100.0
+        all_metrics[project]["index_100"] = idx
+
+    # Aggregates — use bankroll-derived P&L for EMERALD (raw pnl sums are inflated)
+    emerald_balance = 1000.0
+    if emerald_bankroll is not None and not emerald_bankroll.empty and "balance" in emerald_bankroll.columns:
+        emerald_balance = float(emerald_bankroll["balance"].iloc[-1])
+    emerald_real_pnl = emerald_balance - 1000.0
+
+    total_pnl = sum(
+        m["total_pnl"] for name, m in all_metrics.items() if name != "EMERALD"
+    ) + emerald_real_pnl
     total_trades = sum(m["total_trades"] for m in all_metrics.values())
     active_projects = sum(1 for m in all_metrics.values() if m["total_trades"] > 0)
 
@@ -1291,22 +1381,14 @@ def _update_dashboard_inner(active_filter=None):
     })
 
     # Row 2: Project panels — 5 panels, auto-wrap (3+2 or 5-across)
+    # Panels are direct grid items (no wrapper divs) so CSS grid stretch
+    # makes all cards in the same row equal height.
     projects_row = html.Div([
-        html.Div(
-            _project_panel("AGATE", all_metrics["AGATE"], agate_status, anim=2),
-        ),
-        html.Div(
-            _project_panel("BERYL", all_metrics["BERYL"], beryl_status, anim=3),
-        ),
-        html.Div(
-            _project_panel("CITRINE", all_metrics["CITRINE"], {}, anim=4),
-        ),
-        html.Div(
-            _diamond_panel(diamond_summary, anim=5),
-        ),
-        html.Div(
-            _emerald_panel(all_metrics["EMERALD"], emerald_bankroll, anim=6),
-        ),
+        _project_panel("AGATE", all_metrics["AGATE"], agate_status, anim=2),
+        _project_panel("BERYL", all_metrics["BERYL"], beryl_status, anim=3),
+        _project_panel("CITRINE", all_metrics["CITRINE"], {}, anim=4),
+        _diamond_panel(diamond_summary, index_100=all_metrics["DIAMOND"]["index_100"], anim=5),
+        _emerald_panel(all_metrics["EMERALD"], emerald_bankroll, anim=6),
     ], style={
         "display": "grid",
         "gridTemplateColumns": "repeat(auto-fit, minmax(240px, 1fr))",
@@ -1452,50 +1534,221 @@ def toggle_project_filter(n_clicks_list, current_filter):
         return current_filter + [clicked]
 
 
-# Clientside callback: update chart trace visibility + button dimming from filter
+# Clientside callback: trace filtering, trendlines, and zoom-aware recalculation
 app.clientside_callback(
     """
-    function(activeProjects, equityFig, pnlFig, healthFig, metricsTimeFig) {
-        // Update trace visibility for a figure
-        function filterFig(fig, active) {
-            if (!fig || !fig.data) return fig;
-            var newFig = JSON.parse(JSON.stringify(fig));
-            for (var i = 0; i < newFig.data.length; i++) {
-                var name = newFig.data[i].name || '';
-                // COMBINED trace is always visible
-                if (name === 'COMBINED') {
-                    newFig.data[i].visible = true;
-                } else {
-                    // Match by prefix (handles "AGATE (2t)" style labels)
-                    var legendgroup = newFig.data[i].legendgroup || '';
-                    var matched = false;
-                    for (var k = 0; k < active.length; k++) {
-                        if (name === active[k] || name.indexOf(active[k]) === 0
-                            || legendgroup === active[k]) {
-                            matched = true;
-                            break;
-                        }
+    function(activeProjects, eqRelayout, healthRelayout, metricsRelayout,
+             equityFig, pnlFig, healthFig, metricsTimeFig) {
+
+        var NU = window.dash_clientside.no_update;
+        var ctx = window.dash_clientside.callback_context;
+        var trigger = '';
+        if (ctx.triggered && ctx.triggered.length) {
+            trigger = ctx.triggered[0].prop_id;
+        }
+
+        var single = activeProjects.length === 1;
+        var uirev = activeProjects.slice().sort().join(',');
+
+        // ── Helpers ─────────────────────────────────────────────
+
+        function linreg(xs, ys) {
+            var n = xs.length;
+            if (n < 3) return null;
+            var sx=0, sy=0, sxy=0, sxx=0;
+            for (var i=0; i<n; i++) {
+                sx += xs[i]; sy += ys[i];
+                sxy += xs[i]*ys[i]; sxx += xs[i]*xs[i];
+            }
+            var denom = n*sxx - sx*sx;
+            if (Math.abs(denom) < 1e-12) return null;
+            var slope = (n*sxy - sx*sy) / denom;
+            var intercept = (sy - slope*sx) / n;
+            var ssRes=0, ssTot=0, yMean = sy/n;
+            for (var i=0; i<n; i++) {
+                var p = slope*xs[i]+intercept;
+                ssRes += (ys[i]-p)*(ys[i]-p);
+                ssTot += (ys[i]-yMean)*(ys[i]-yMean);
+            }
+            return {slope:slope, intercept:intercept, r2: ssTot>1e-12 ? 1-ssRes/ssTot : 0};
+        }
+
+        function hexToRgba(hex, alpha) {
+            if (hex.charAt(0) === '#') {
+                var r = parseInt(hex.slice(1,3),16);
+                var g = parseInt(hex.slice(3,5),16);
+                var b = parseInt(hex.slice(5,7),16);
+                return 'rgba('+r+','+g+','+b+','+alpha+')';
+            }
+            if (hex.indexOf('rgba') === 0)
+                return hex.replace(/[\\d.]+\\)$/, alpha+')');
+            if (hex.indexOf('rgb') === 0)
+                return hex.replace('rgb(','rgba(').replace(')',','+alpha+')');
+            return 'rgba(0,232,255,'+alpha+')';
+        }
+
+        function trendColor(trace) {
+            var c = (trace.line && trace.line.color) || '#00e8ff';
+            return hexToRgba(c, 0.5);
+        }
+
+        function getRange(relay, prefix) {
+            if (!relay) return null;
+            if (relay[prefix+'.autorange']) return null;
+            var r0 = relay[prefix+'.range[0]'];
+            var r1 = relay[prefix+'.range[1]'];
+            if (r0 !== undefined && r1 !== undefined) return [r0, r1];
+            return null;
+        }
+
+        function filterData(trace, range) {
+            if (!trace || !trace.y || trace.y.length < 3) return null;
+            var rXs=[], rYs=[], rXO=[];
+            for (var i=0; i<trace.y.length; i++) {
+                if (trace.y[i]==null || !isFinite(trace.y[i])) continue;
+                var inR = true;
+                if (range) {
+                    var xv = trace.x[i];
+                    if (typeof range[0] === 'string') {
+                        xv = new Date(xv).getTime();
+                        inR = xv >= new Date(range[0]).getTime()
+                           && xv <= new Date(range[1]).getTime();
+                    } else {
+                        xv = typeof xv === 'number' ? xv : parseFloat(xv);
+                        inR = xv >= range[0] && xv <= range[1];
                     }
-                    newFig.data[i].visible = matched;
+                }
+                if (inR) { rXs.push(rXs.length); rYs.push(trace.y[i]); rXO.push(trace.x[i]); }
+            }
+            if (rXs.length < 3) return null;
+            return {xs:rXs, ys:rYs, xOrig:rXO};
+        }
+
+        function makeTrend(fd, color, xaxis, yaxis) {
+            if (!fd) return null;
+            var reg = linreg(fd.xs, fd.ys);
+            if (!reg) return null;
+            var n = fd.xs.length;
+            var t = {
+                x: [fd.xOrig[0], fd.xOrig[n-1]],
+                y: [reg.intercept, reg.slope*fd.xs[n-1]+reg.intercept],
+                mode: 'lines',
+                name: 'Trend (R\\u00b2=' + reg.r2.toFixed(2) + ')',
+                line: {color:color, width:2, dash:'dash'},
+                showlegend: false, hoverinfo: 'skip', visible: true
+            };
+            if (xaxis) t.xaxis = xaxis;
+            if (yaxis) t.yaxis = yaxis;
+            return t;
+        }
+
+        function isMatch(name, lg, active) {
+            for (var k=0; k<active.length; k++) {
+                if (name===active[k] || name.indexOf(active[k])===0 || lg===active[k])
+                    return true;
+            }
+            return false;
+        }
+
+        // ── Process a single-panel chart ────────────────────────
+
+        function processChart(fig, active, addTrend, xRange) {
+            if (!fig || !fig.data) return fig;
+            var nf = JSON.parse(JSON.stringify(fig));
+            nf.layout.uirevision = uirev;
+            nf.data = nf.data.filter(function(t){
+                return !(t.name && t.name.indexOf('Trend')===0);
+            });
+            var vis = null;
+            for (var i=0; i<nf.data.length; i++) {
+                var nm = nf.data[i].name || '';
+                if (nm === 'COMBINED') {
+                    nf.data[i].visible = !single;
+                } else {
+                    var lg = nf.data[i].legendgroup || '';
+                    var m = isMatch(nm, lg, active);
+                    nf.data[i].visible = m;
+                    if (m && single && addTrend) vis = nf.data[i];
                 }
             }
-            return newFig;
+            if (single && addTrend && vis) {
+                var fd = filterData(vis, xRange);
+                var trend = makeTrend(fd, trendColor(vis));
+                if (trend) nf.data.push(trend);
+            }
+            return nf;
         }
 
-        var eq = filterFig(equityFig, activeProjects);
-        var pnl = filterFig(pnlFig, activeProjects);
-        var health = filterFig(healthFig, activeProjects);
-        var metricsTime = filterFig(metricsTimeFig, activeProjects);
+        // ── Process the 2x2 metrics subplot ─────────────────────
 
-        // Build button styles — dim inactive projects
-        var allProjects = ['AGATE', 'BERYL', 'CITRINE', 'DIAMOND', 'EMERALD'];
-        var styles = [];
-        for (var j = 0; j < allProjects.length; j++) {
-            var isActive = activeProjects.indexOf(allProjects[j]) !== -1;
-            styles.push(isActive ? '' : 'project-toggle dimmed');
+        function processMetrics(fig, active, relayoutObj) {
+            if (!fig || !fig.data) return fig;
+            var nf = JSON.parse(JSON.stringify(fig));
+            nf.layout.uirevision = uirev;
+            nf.data = nf.data.filter(function(t){
+                return !(t.name && t.name.indexOf('Trend')===0);
+            });
+            var targets = [];
+            for (var i=0; i<nf.data.length; i++) {
+                var t = nf.data[i]; var nm = t.name||''; var lg = t.legendgroup||'';
+                if (nm === 'COMBINED') { t.visible = !single; continue; }
+                var m = isMatch(nm, lg, active);
+                t.visible = m;
+                if (m && single) targets.push(t);
+            }
+            if (single) {
+                for (var j=0; j<targets.length; j++) {
+                    var tt = targets[j];
+                    var xa = tt.xaxis || 'x';
+                    var ya = tt.yaxis || 'y';
+                    if (xa==='x2' && ya==='y2') continue;
+                    var axKey = xa==='x' ? 'xaxis' : xa.replace('x','xaxis');
+                    var range = relayoutObj ? getRange(relayoutObj, axKey) : null;
+                    var fd = filterData(tt, range);
+                    var trend = makeTrend(fd, trendColor(tt), xa, ya);
+                    if (trend) nf.data.push(trend);
+                }
+            }
+            return nf;
         }
 
-        return [eq, pnl, health, metricsTime].concat(styles);
+        // ── Main dispatch ───────────────────────────────────────
+
+        var allP = ['AGATE','BERYL','CITRINE','DIAMOND','EMERALD'];
+        var styles = allP.map(function(p){
+            return activeProjects.indexOf(p)!==-1 ? '' : 'project-toggle dimmed';
+        });
+        var NUS = [NU,NU,NU,NU,NU];
+
+        // Zoom on equity chart
+        if (trigger.indexOf('equity-chart.relayoutData') !== -1) {
+            if (!single) return [NU,NU,NU,NU].concat(NUS);
+            var r = getRange(eqRelayout, 'xaxis');
+            return [processChart(equityFig, activeProjects, true, r),
+                    NU, NU, NU].concat(NUS);
+        }
+        // Zoom on health chart
+        if (trigger.indexOf('health-chart.relayoutData') !== -1) {
+            if (!single) return [NU,NU,NU,NU].concat(NUS);
+            var r = getRange(healthRelayout, 'xaxis');
+            return [NU, NU,
+                    processChart(healthFig, activeProjects, true, r),
+                    NU].concat(NUS);
+        }
+        // Zoom on metrics chart
+        if (trigger.indexOf('metrics-time-chart.relayoutData') !== -1) {
+            if (!single) return [NU,NU,NU,NU].concat(NUS);
+            return [NU, NU, NU,
+                    processMetrics(metricsTimeFig, activeProjects, metricsRelayout)
+                   ].concat(NUS);
+        }
+
+        // Filter change — recompute all charts (full range)
+        var eq = processChart(equityFig, activeProjects, true, null);
+        var pnl = processChart(pnlFig, activeProjects, false, null);
+        var health = processChart(healthFig, activeProjects, true, null);
+        var mt = processMetrics(metricsTimeFig, activeProjects, null);
+        return [eq, pnl, health, mt].concat(styles);
     }
     """,
     [
@@ -1511,6 +1764,9 @@ app.clientside_callback(
     ],
     [
         Input("project-filter", "data"),
+        Input("equity-chart", "relayoutData"),
+        Input("health-chart", "relayoutData"),
+        Input("metrics-time-chart", "relayoutData"),
     ],
     [
         State("equity-chart", "figure"),

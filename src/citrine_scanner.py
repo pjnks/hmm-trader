@@ -83,6 +83,7 @@ class TickerScan:
     sector:          str
     hmm_converged:   bool
     regime_half_life: float = 30.0   # expected regime half-life in bars (from transition matrix)
+    current_atr:     float = 0.0    # 14-period ATR at scan time (for Chandelier exit & position sizing)
     scan_time:       str = ""
     error:           Optional[str] = None
 
@@ -284,6 +285,16 @@ class CitrineScanner:
             # Sector
             sector = config.CITRINE_SECTORS.get(ticker, "Unknown")
 
+            # ATR for Chandelier exit & position sizing (Sprint 9)
+            from src.indicators import compute_atr
+            atr_val = 0.0
+            try:
+                atr_series = compute_atr(df_raw)
+                if len(atr_series.dropna()) > 0:
+                    atr_val = float(atr_series.dropna().iloc[-1])
+            except Exception:
+                pass
+
             return TickerScan(
                 ticker=ticker,
                 regime_cat=regime_cat,
@@ -296,6 +307,7 @@ class CitrineScanner:
                 sector=sector,
                 hmm_converged=model.converged,
                 regime_half_life=half_life,
+                current_atr=atr_val,
                 scan_time=datetime.now(tz=timezone.utc).isoformat(),
             )
 

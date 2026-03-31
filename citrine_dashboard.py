@@ -759,7 +759,7 @@ def update_dashboard(_n):
             d_pct = (d_pnl / prev_eq) * 100 if prev_eq > 0 else 0
             d_color = GREEN if d_pnl >= 0 else RED
             day_offset = num_days - 1 - i  # 0 = most recent
-            d_label = f"Day {-day_offset}" if day_offset > 0 else "Day 0 (today)"
+            d_label = f"Day {-day_offset}" if day_offset > 0 else "Day 0 (latest)"
             d_sublabel = d.strftime("%m/%d")
             d_str = f"${d_pnl:+,.0f} ({d_pct:+.2f}%)"
 
@@ -776,7 +776,7 @@ def update_dashboard(_n):
         # No data yet — show placeholder
         for i in range(10):
             offset = -(9 - i)
-            label = f"Day {offset}" if offset < 0 else "Day 0 (today)"
+            label = f"Day {offset}" if offset < 0 else "Day 0 (latest)"
             day_cards.append(
                 dbc.Col(_metric_card(label, "—", TEXT_DIM), md=True, sm=4)
             )

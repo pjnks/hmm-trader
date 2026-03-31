@@ -614,7 +614,7 @@ Where:
 - **8 systemd services + watchdog timer deployed to Oracle Cloud VM** (VM.Standard.E2.1.Micro, 1 OCPU, 1GB RAM) with auto-restart. Watchdog monitors all 8 services (4 traders + 4 dashboards) every 15 min.
 - **AGATE** running `--test` with ensemble HMM on 14 crypto tickers. First live BUY: ENAUSD (8/8 confirmations, 0.98 confidence, 2026-03-26). Paper P&L tracking via `open_positions` table (Sprint 7). **Sprint 8 (2026-03-28)**: 4 tickers (LTC/SUI/DOGE/ADA) only had ~95d data — backfilling to 730d, then re-optimizing. 12/14 tickers have per-ticker configs. Config: `extended_v2`/7cf (stability-tested Sharpe +0.837).
 - **BERYL** running 98-ticker ensemble rotation with up to 3 positions (58 with BERYL-optimized configs, 40 use defaults). 1 closed trade: ARM +$23.11 (+2.77%), re-entered ARM @ $144.27 on 2026-03-27. **Sprint 8 fix (2026-03-28)**: was loading `citrine_per_ticker_configs.json` instead of `beryl_per_ticker_configs.json` — all signals computed with wrong HMM params. Fixed config loading + added `_load_ticker_universe()` for two-layer design (citrine config = 98-ticker scan universe, beryl config = 58 optimized HMM params). Watchdog false-positive fix: sleeping Python (1-5MB) triggered <5MB zombie threshold, restarting traders every ~45 min.
-- **CITRINE** running 82-ticker long-only live test. **Sprint 7 COMPLETE (2026-03-26)**: (1) cash band enforced as hard floor in `_execute_rebalance()`, (2) persistence bonus replaced with sojourn decay from HMM transition matrix `A[k,k]`, (3) continuous cash scaling replaces rigid bucketed bands, (4) intraday price fix via `fetch_latest_price()`. Current: $24,892 equity, 10 positions, 38% cash, 108 trades, 47% win rate.
+- **CITRINE** running 82-ticker long-only live test. **Sprint 9 risk engine DEPLOYED (2026-03-31)**: Chandelier exit (entry_atr × 2.0), ATR position sizing (inverse vol parity, 1% risk budget), confidence velocity exit, MAE/MFE tracking (8 new DB columns). Decouples alpha (HMM regime detection) from risk (mechanical stops). Current: $24,892 equity, 10 positions, 38% cash, 108 trades, 47% win rate.
 - **DIAMOND** running WebSocket anomaly detection on all Kalshi markets with paper trading engine + ML scorer (Lasso, AUC 0.823, A/B logging mode). Dashboard at :8080.
 - **All 4 dashboards accessible**: :8060 (AGATE+BERYL, with regime panels), :8070 (CITRINE, with position health + signal frequency), :8080 (DIAMOND, anomaly feed + portfolio status), :8090 (Consolidated, all projects)
 - **Watchdog timer** runs every 15 minutes — checks journald log freshness + memory footprint, auto-restarts zombie services. Deployed 2026-03-26 after all 3 traders went zombie simultaneously.
@@ -682,6 +682,14 @@ Where:
   4. **Dashboard CSS bug fix**: Dash 4.0 dynamically injects elements via React callbacks — CSS `animation-fill-mode: both` kept elements at `opacity: 0` (the `from` keyframe) because animations don't re-trigger on DOM insertion. Fixed by changing to `forwards`. Also fixed `body::before` z-index overlay blocking clicks, and moved Google Fonts from `@import` to `<link>` tag.
   5. **Quant audit results** (carried from previous session): Universal param test FAILED (6/15 tickers positive with global config), beta test FAILED (3/13 tickers had alpha after market-beta adjustment), frequency test PASSED (8/10 adequate-N configs had >1.0 Sharpe). ETH and LINK are the only two tickers surviving ALL statistical tests (DSR, frequency, alpha). Per-ticker configs confirmed as necessary — universal config doesn't work across crypto assets with different microstructures.
   6. **DIAMOND↔CITRINE bridge**: `src/diamond_bridge.py` rewritten with `CitrineDiamondBridge` class. Maps Kalshi anomalies to NDX100 equity alt-data boosts via indirect correlations (BTC→MSTR/COIN, WTI→energy, macro→all tickers). CITRINE `_fetch_alt_data_boosts()` now combines SEC insider × DIAMOND anomaly boosts multiplicatively, clamped [0.7, 1.5].
+
+- **Sprint 9 — CITRINE Risk Engine & MAE Calibration** (2026-03-30/31, DEPLOYED):
+  1. **MAE/MFE calibration** (`mae_calibration.py`): Offline walk-forward analysis of 562 trades across 30 NDX100 tickers over 3 years. HMM-only exits (no trailing stops). Results: 95th percentile non-zero winner MAE = **1.793 ATR**, 99th = 2.235 ATR. Recommended Chandelier multiplier: **2.0 ATR** (95th × 1.1 buffer). Prior expectation of 3.0 was too conservative. At 2.0 ATR: stops 3% of winners, 11% of losers. Average hold duration ~2.9 days (winners), ~2.4 days (losers). 97% of winner MAE occurs in first 2 days. Expectancy: +0.39%/trade.
+  2. **CITRINE turnaround diagnosis**: Forensic analysis of 108 live trades revealed three compounding failures: (a) loss asymmetry 3:1 (avg loser ~3× avg winner), (b) HMM exit latency — 87% of exits occur in BEAR/CHOP (regime already flipped), (c) concentration in serial losers. Root cause: HMM is a probabilistic low-pass filter — requires multiple adverse observations to overcome transition probability A[i,i].
+  3. **Risk engine DEPLOYED** to `live_trading_citrine.py`: 4-part system separating alpha model (HMM) from risk model: (a) ATR-based position sizing (inverse vol parity, 1% risk budget per trade, 15% max notional cap), (b) Chandelier exit at entry_atr × 2.0 (CRITICAL: must use entry_atr, not current_atr — ATR autocorrelation causes stop to widen during crashes), (c) confidence velocity exit (delta_conf < -0.25 AND close < prev_close), (d) MAE/MFE tracking per trade (8 new DB columns). `_check_risk_exits()` runs before allocator in daily cycle — Chandelier + conf velocity checked on every held position.
+  4. **`CitrinePosition` expanded** with risk engine fields: `entry_atr`, `entry_confidence`, `highest_price`/`lowest_price` watermarks, `mae_pct`/`mfe_pct`/`mae_atr`/`mfe_atr` tracking, `chandelier_stop()` method. `TickerScan` now includes `current_atr` field computed during scan.
+  5. **DB schema expanded**: 8 new columns on trades table — `entry_atr`, `exit_reason`, `mae_pct`, `mfe_pct`, `mae_atr`, `mfe_atr`, `entry_confidence`, `hold_days`. Exit reasons categorized: `chandelier_stop`, `conf_velocity`, `regime_flip`, `kill_switch`, `manual`.
+  6. **Metrics gap addressed**: 17 metrics across trade/position/portfolio levels previously not tracked. Key gaps now filled: MAE/MFE, entry confidence, exit reason categorization. Remaining gaps: rolling Sharpe for BERYL/CITRINE, profit factor, portfolio heat, win/loss streak.
 
 ### CITRINE Optimization & Portfolio Rotation
 - **Per-ticker HMM optimization**: COMPLETE + RE-OPTIMIZED (585 trials across 100 tickers, 82 positive Sharpe — 83%)
@@ -1095,13 +1103,14 @@ Walk-forward portfolio backtester with daily rebalancing.
 
 ### `live_trading_citrine.py`
 Daily portfolio rotation engine for CITRINE (test/live mode).
-- `CitrinePosition` dataclass: ticker, direction, entry_price, entry_date, size, sector, signal_strength
+- `CitrinePosition` dataclass: ticker, direction, entry_price, entry_date, size, sector, signal_strength, entry_atr, entry_confidence, highest_price, lowest_price, mae_pct, mfe_pct, mae_atr, mfe_atr. `chandelier_stop()` method returns stop price = `highest_price - entry_atr × 2.0`. Watermarks updated on every daily cycle via `update_watermarks(high, low)`.
 - `CitrineLiveEngine` class:
   - `run_forever()` — infinite loop: daily 4pm ET scan→allocate→rebalance (Mon-Fri only for equities)
-  - `_run_daily_cycle()` — orchestrator: scan, allocate, rebalance, log, check kill-switch
+  - `_run_daily_cycle()` — orchestrator: scan, **risk exits**, allocate, rebalance, log, check kill-switch. Risk exits run BEFORE allocator so stopped-out positions free capital for new entries.
+  - `_check_risk_exits()` — Sprint 9: iterates all held positions, checks (a) Chandelier stop: `current_price < position.chandelier_stop()`, (b) confidence velocity: `delta_conf < -0.25 AND close < prev_close`. Exits with categorized `exit_reason`.
   - `_execute_rebalance()` — compare current vs target positions, exit/enter/scale as needed
-  - `_enter_position()` — market order entry with 10bps slippage (test) or live CDP (live); deduplication guard skips if ticker already held
-  - `_exit_position()` — market order exit, calculate P&L, log trade
+  - `_enter_position()` — market order entry with 10bps slippage (test) or live CDP (live); deduplication guard skips if ticker already held. Sprint 9: now records `entry_atr` and `entry_confidence` from scan data.
+  - `_exit_position()` — market order exit, calculate P&L, log trade. Sprint 9: logs `exit_reason`, `mae_pct`, `mfe_pct`, `mae_atr`, `mfe_atr`, `hold_days` to DB.
   - `_scale_position()` — increase size on Day 2 per fast scaling schedule (Sprint 1 update)
   - `_restore_state_from_db()` — Sprint 1 fix: reads latest portfolio_snapshots from `citrine_trades.db` and rebuilds `self.positions` on restart; calls `_restore_allocator_holdings()` to rebuild `allocator._holdings`
   - `_log_snapshot()` — Sprint 1 fix: uses scan_prices dict for mark-to-market (was using stale entry prices)
@@ -1110,8 +1119,8 @@ Daily portfolio rotation engine for CITRINE (test/live mode).
   - `_emergency_exit_all()` — Sprint 3: forced liquidation of all positions when intra-day kill-switch triggers
   - Kill-switch automation: total loss > 5%, rolling 20-trade Sharpe < 0.3, 0/10 wins, **intra-day unrealized loss > 5%** (Sprint 3)
   - **Kill-switch grace period** (Sprint 4): `_KILL_SWITCH_GRACE_CYCLES = 3` — skips kill-switch checks for first 3 daily cycles after restart, preventing restart loops when old DB trades have poor Sharpe
-- SQLite logging: `citrine_trades.db` (trades: timestamp, ticker, side, size, price, P&L, signal_strength) + portfolio_snapshots (equity, cash, positions JSON)
-- Position sizing: $25k capital, max $5k per position, adaptive cash management per allocator
+- SQLite logging: `citrine_trades.db` (trades: timestamp, ticker, side, size, price, P&L, signal_strength, entry_atr, exit_reason, mae_pct, mfe_pct, mae_atr, mfe_atr, entry_confidence, hold_days) + portfolio_snapshots (equity, cash, positions JSON)
+- Position sizing: $25k capital, ATR-based inverse vol parity (1% risk budget per trade, 15% max notional cap), adaptive cash management per allocator
 - CLI args: `--test`, `--live`, `--tickers`, `--long-only`, `--cooldown`
 - Reuses: `CitrineScanner`, `CitrineAllocator`, `src/notifier.py` (all notification channels)
 
@@ -1215,6 +1224,18 @@ Weekly auto-optimization cron scripts (Sunday 2am/4am/8am).
 - Sends Pushover + macOS notification with summary
 - CITRINE auto-updates `citrine_per_ticker_configs.json` (hot-swappable)
 - AGATE/BERYL results require manual review
+
+### `mae_calibration.py`
+Offline MAE/MFE calibration for CITRINE's Chandelier exit multiplier.
+- Walk-forward HMM backtests on NDX100 tickers using HMM-only exits (no trailing stops)
+- Tracks per-trade MAE/MFE in both % and ATR units using intraday high/low
+- `ExcursionTrade` dataclass: ticker, entry/exit dates/prices, entry_atr, pnl_pct, mae_pct/mfe_pct, mae_atr/mfe_atr, mae_day/mfe_day, hold_days, is_winner
+- Loads per-ticker configs from `citrine_per_ticker_configs.json`
+- Addresses three statistical traps: (1) zero-MAE mass skewing percentiles, (2) time-in-trade normalization, (3) bull/bear regime coverage
+- Outputs recommended Chandelier multiplier: `abs(95th_pctile_nonzero_winner_MAE) × 1.1`
+- Includes "would-have" analysis showing impact at 2.0, 2.5, 3.0, 3.5 ATR stops
+- **Calibration results (2026-03-30)**: 562 trades across 30 tickers, 3 years. 95th pctile winner MAE = 1.793 ATR → recommended multiplier = **2.0 ATR**
+- CLI: `python mae_calibration.py --tickers 20`
 
 ### `signal_decay_analysis.py`
 AGATE signal decay analysis — measures forward returns at t+1, t+2, t+4 bars (4h intervals) after BUY signals.

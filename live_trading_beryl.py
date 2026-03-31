@@ -225,7 +225,51 @@ class BerylLiveEngine:
                     signal_strength INTEGER NOT NULL
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS scan_journal (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    scan_date TEXT NOT NULL,
+                    ticker TEXT NOT NULL,
+                    regime TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    confirmations INTEGER NOT NULL,
+                    min_confirmations INTEGER NOT NULL,
+                    signal TEXT NOT NULL,
+                    close_price REAL NOT NULL,
+                    config_used TEXT,
+                    UNIQUE(scan_date, ticker)
+                )
+            """)
             conn.commit()
+
+    def _log_scan_journal(self, signals: list[dict]) -> None:
+        """Log all scan results to scan_journal table for prediction scoring."""
+        scan_date = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+        rows = []
+        for s in signals:
+            rows.append((
+                scan_date,
+                s["ticker"],
+                s["regime"],
+                round(s["confidence"], 4),
+                s["confirmations"],
+                s.get("min_confirmations", 5),
+                s["signal"],
+                s.get("current_price", 0.0),
+                s.get("config_used", "unknown"),
+            ))
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.executemany("""
+                    INSERT OR REPLACE INTO scan_journal
+                    (scan_date, ticker, regime, confidence, confirmations,
+                     min_confirmations, signal, close_price, config_used)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, rows)
+                conn.commit()
+            log.info(f"  [Journal] Logged {len(rows)} scan results for {scan_date}")
+        except Exception as e:
+            log.warning(f"  [Journal] Failed to log scan: {e}")
 
     def _fetch_data(self, ticker: str) -> pd.DataFrame:
         """Fetch recent equity data from Polygon (365-day lookback)."""
@@ -924,6 +968,7 @@ class BerylLiveEngine:
 
                 if signals and isinstance(signals, list) and len(signals) > 0:
                     self._write_status(signals)
+                    self._log_scan_journal(signals)
                     self.process_signals(signals)
                 else:
                     log.warning("No signals generated (signals=%s) — retrying next cycle",
