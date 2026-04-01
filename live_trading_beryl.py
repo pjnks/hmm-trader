@@ -148,6 +148,9 @@ class BerylLiveEngine:
         config.LEVERAGE = BERYL_LEVERAGE
         config.COOLDOWN_HOURS = BERYL_COOLDOWN_HOURS
 
+        # Restore positions from last snapshot (survives restarts)
+        self._restore_state_from_db()
+
         log.info(f"BERYL Engine initialized: {len(self.tickers)} tickers ({'TEST' if test_mode else 'LIVE'})")
         log.info(f"Per-ticker configs loaded: {len(self._per_ticker_params)} tickers")
         log.info(f"Default fallback: {BERYL_DEFAULT_CONFIG}")
@@ -240,7 +243,71 @@ class BerylLiveEngine:
                     UNIQUE(scan_date, ticker)
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    total_equity REAL NOT NULL,
+                    num_positions INTEGER NOT NULL,
+                    positions_json TEXT
+                )
+            """)
             conn.commit()
+
+    # ── State Restoration ──────────────────────────────────────────────────
+
+    def _restore_state_from_db(self) -> None:
+        """Restore positions from the last portfolio snapshot on restart.
+
+        Mirrors CITRINE's _restore_state_from_db(). Without this, positions
+        are silently lost whenever the systemd service restarts (OOM kill,
+        code deploy, watchdog, etc.) — entries never get exit-logged and
+        the capital is effectively abandoned.
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                row = conn.execute(
+                    "SELECT positions_json, total_equity "
+                    "FROM portfolio_snapshots ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+
+            if row is None:
+                log.info("[Restore] No previous snapshot — starting fresh")
+                return
+
+            positions_json, saved_equity = row
+
+            if not positions_json:
+                log.info("[Restore] Previous snapshot has no positions — starting fresh")
+                return
+
+            pos_data = json.loads(positions_json)
+            if not pos_data:
+                log.info("[Restore] Previous snapshot positions empty — starting fresh")
+                return
+
+            restored = 0
+            for ticker, info in pos_data.items():
+                size = info.get("size", 0)
+                entry = info.get("entry_price", 0)
+                if size > 0 and entry > 0:
+                    pos = BerylPosition(
+                        ticker=ticker,
+                        side=info.get("side", "BUY"),
+                        size=size,
+                        entry_price=entry,
+                    )
+                    # Restore original entry_time (don't overwrite with "now")
+                    pos.entry_time = info.get("entry_time", pos.entry_time)
+                    pos.notional = info.get("notional", size * entry)
+                    self.positions[ticker] = pos
+                    restored += 1
+
+            log.info(f"[Restore] Recovered {restored} position(s) from last snapshot: "
+                     f"{list(self.positions.keys())}")
+
+        except Exception as e:
+            log.warning(f"[Restore] Failed to restore state: {e} — starting fresh")
 
     def _log_scan_journal(self, signals: list[dict]) -> None:
         """Log all scan results to scan_journal table for prediction scoring."""
@@ -270,6 +337,50 @@ class BerylLiveEngine:
             log.info(f"  [Journal] Logged {len(rows)} scan results for {scan_date}")
         except Exception as e:
             log.warning(f"  [Journal] Failed to log scan: {e}")
+
+    def _log_snapshot(self, signals: list[dict]) -> None:
+        """Persist current positions to DB for restart recovery.
+
+        Stores a JSON dict mapping ticker → position info so that
+        _restore_state_from_db() can rebuild self.positions after a
+        service restart (systemd, OOM kill, etc.).
+        """
+        if not self.positions:
+            positions_json = "{}"
+        else:
+            # Build price lookup from latest scan
+            scan_prices = {s["ticker"]: s.get("current_price", 0.0) for s in signals}
+
+            pos_data = {}
+            for ticker, pos in self.positions.items():
+                current = scan_prices.get(ticker, pos.entry_price)
+                pos_data[ticker] = {
+                    "ticker": pos.ticker,
+                    "side": pos.side,
+                    "size": pos.size,
+                    "entry_price": pos.entry_price,
+                    "entry_time": pos.entry_time,
+                    "notional": pos.notional,
+                    "current": current,
+                }
+            positions_json = json.dumps(pos_data)
+
+        # Compute equity: invested notional (mark-to-market) + remaining cash
+        total_invested = sum(pos.notional for pos in self.positions.values())
+        total_equity = INITIAL_EQUITY  # BERYL test mode — flat $2,500
+
+        now = datetime.now(tz=timezone.utc).isoformat()
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    """INSERT INTO portfolio_snapshots
+                    (timestamp, total_equity, num_positions, positions_json)
+                    VALUES (?, ?, ?, ?)""",
+                    (now, total_equity, len(self.positions), positions_json),
+                )
+                conn.commit()
+        except Exception as e:
+            log.warning(f"  [Snapshot] Failed to log snapshot: {e}")
 
     def _fetch_data(self, ticker: str) -> pd.DataFrame:
         """Fetch recent equity data from Polygon (365-day lookback)."""
@@ -891,6 +1002,7 @@ class BerylLiveEngine:
                     "confirmations": s["confirmations"],
                     "min_confirmations": s.get("min_confirmations", 5),
                     "config_used": s.get("config_used", "unknown"),
+                    "current_price": s.get("current_price", 0.0),
                 })
 
             # Regime counts
@@ -967,9 +1079,10 @@ class BerylLiveEngine:
                 signals = self._scan_all_tickers()
 
                 if signals and isinstance(signals, list) and len(signals) > 0:
-                    self._write_status(signals)
                     self._log_scan_journal(signals)
                     self.process_signals(signals)
+                    self._write_status(signals)  # AFTER trades so positions are current
+                    self._log_snapshot(signals)   # Persist state for restart recovery
                 else:
                     log.warning("No signals generated (signals=%s) — retrying next cycle",
                                 type(signals).__name__ if signals is not None else "None")

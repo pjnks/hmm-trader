@@ -562,7 +562,12 @@ def _beryl_regime_panel(status: dict) -> html.Div:
         )
 
     summary = status.get("scan_summary", [])
-    positions = status.get("positions", [])
+    # positions may be a dict (ticker→info) or a list — normalize to list
+    raw_positions = status.get("positions", [])
+    if isinstance(raw_positions, dict):
+        positions = list(raw_positions.values())
+    else:
+        positions = raw_positions
     ts = status.get("timestamp", "")
 
     n_total = status.get("tickers_total", len(summary))
