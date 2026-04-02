@@ -137,6 +137,271 @@ class CitrinePosition:
 
 # ── Live Engine ────────────────────────────────────────────────────────────
 
+class ShadowTracker:
+    """
+    Shadow/harvesting mode — runs a parallel allocator with relaxed thresholds
+    against the same scan results as the live engine.  Logs theoretical
+    entries/exits to a ``shadow_trades`` table for offline analysis.
+
+    Zero impact on live trading:
+      • No extra API calls (reuses live scan data)
+      • Separate allocator state (own holdings, own hysteresis)
+      • Only writes to its own DB table
+    """
+
+    # Relaxed thresholds (vs live: entry=0.90, exit=0.50, persistence=3)
+    SHADOW_ENTRY_CONFIDENCE = 0.70
+    SHADOW_EXIT_CONFIDENCE = 0.35
+    SHADOW_PERSISTENCE_DAYS = 1
+    SHADOW_MAX_POSITIONS = 30  # higher cap → more data points
+
+    def __init__(self, db_path: Path, capital: float, long_only: bool = True):
+        self.db_path = db_path
+        self.capital = capital
+        self.long_only = long_only
+
+        # Shadow allocator with its own state — completely independent of live
+        self._allocator = CitrineAllocator(
+            capital=capital,
+            long_only=long_only,
+            cooldown_mode="none",
+        )
+
+        # Shadow positions: ticker → {direction, entry_price, entry_date, ...}
+        self._positions: dict[str, dict] = {}
+
+        self._init_shadow_table()
+        self._restore_shadow_state()
+
+    def _init_shadow_table(self):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS shadow_trades (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    ticker TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    price REAL NOT NULL,
+                    notional REAL,
+                    pnl REAL,
+                    pnl_pct REAL,
+                    regime TEXT,
+                    confidence REAL,
+                    persistence INTEGER,
+                    confirmations INTEGER,
+                    realized_vol REAL,
+                    citrine_score REAL,
+                    sector TEXT,
+                    entry_atr REAL,
+                    regime_half_life REAL,
+                    alt_boost REAL
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS shadow_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    num_positions INTEGER NOT NULL,
+                    theoretical_equity REAL,
+                    positions_json TEXT
+                )
+            """)
+            conn.commit()
+
+    def _restore_shadow_state(self):
+        """Rebuild shadow positions from the latest snapshot on restart."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                row = conn.execute(
+                    "SELECT positions_json FROM shadow_snapshots "
+                    "ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+            if row and row[0]:
+                data = json.loads(row[0])
+                if isinstance(data, dict):
+                    self._positions = data
+                    # Restore allocator holdings so hysteresis works
+                    for ticker in self._positions:
+                        self._allocator._holdings[ticker] = \
+                            self._positions[ticker].get("days_held", 1)
+                    log.info(f"[SHADOW] Restored {len(self._positions)} shadow positions")
+        except Exception as e:
+            log.warning(f"[SHADOW] Could not restore state: {e}")
+
+    def run_shadow_cycle(
+        self,
+        scans: list[TickerScan],
+        alt_data_boosts: dict[str, float] | None = None,
+    ) -> None:
+        """
+        Run one shadow allocation cycle using relaxed thresholds.
+
+        Called from _run_daily_cycle() with the SAME scan results —
+        no extra API calls or HMM fits.
+        """
+        if not scans:
+            return
+
+        # Temporarily override config thresholds for shadow allocation
+        orig_entry = config.CITRINE_ENTRY_CONFIDENCE
+        orig_exit = config.CITRINE_EXIT_CONFIDENCE
+        orig_persist = config.CITRINE_PERSISTENCE_DAYS
+        orig_max_pos = config.CITRINE_MAX_POSITIONS
+
+        try:
+            config.CITRINE_ENTRY_CONFIDENCE = self.SHADOW_ENTRY_CONFIDENCE
+            config.CITRINE_EXIT_CONFIDENCE = self.SHADOW_EXIT_CONFIDENCE
+            config.CITRINE_PERSISTENCE_DAYS = self.SHADOW_PERSISTENCE_DAYS
+            config.CITRINE_MAX_POSITIONS = self.SHADOW_MAX_POSITIONS
+
+            weights, cash_pct = self._allocator.allocate(
+                scans, alt_data_boosts=alt_data_boosts)
+        finally:
+            # Always restore — even if allocate() throws
+            config.CITRINE_ENTRY_CONFIDENCE = orig_entry
+            config.CITRINE_EXIT_CONFIDENCE = orig_exit
+            config.CITRINE_PERSISTENCE_DAYS = orig_persist
+            config.CITRINE_MAX_POSITIONS = orig_max_pos
+
+        # Process shadow entries and exits
+        now = datetime.now(tz=timezone.utc).isoformat()
+        scan_map = {s.ticker: s for s in scans if s.error is None}
+        new_entries = 0
+        new_exits = 0
+
+        for w in weights:
+            scan = scan_map.get(w.ticker)
+            if scan is None:
+                continue
+
+            if w.action == "ENTER" and w.ticker not in self._positions:
+                # Shadow entry
+                self._positions[w.ticker] = {
+                    "direction": w.direction,
+                    "entry_price": scan.current_price,
+                    "entry_date": now,
+                    "entry_confidence": scan.confidence,
+                    "entry_atr": getattr(scan, "current_atr", 0.0) or 0.0,
+                    "days_held": 1,
+                    "notional": min(w.notional_usd, self.capital / self.SHADOW_MAX_POSITIONS),
+                }
+                self._log_shadow_trade(
+                    now, w.ticker, "ENTER", w.direction, scan,
+                    score=w.raw_score,
+                    alt_boost=(alt_data_boosts or {}).get(w.ticker, 1.0),
+                )
+                new_entries += 1
+
+            elif w.action == "EXIT" and w.ticker in self._positions:
+                # Shadow exit
+                pos = self._positions[w.ticker]
+                entry_price = pos["entry_price"]
+                exit_price = scan.current_price
+                if entry_price > 0 and exit_price > 0:
+                    if pos["direction"] == "LONG":
+                        pnl_pct = (exit_price - entry_price) / entry_price * 100
+                    else:
+                        pnl_pct = (entry_price - exit_price) / entry_price * 100
+                    notional = pos.get("notional", 0)
+                    pnl = notional * pnl_pct / 100
+                else:
+                    pnl, pnl_pct = 0.0, 0.0
+
+                self._log_shadow_trade(
+                    now, w.ticker, "EXIT", pos["direction"], scan,
+                    pnl=pnl, pnl_pct=pnl_pct,
+                    alt_boost=(alt_data_boosts or {}).get(w.ticker, 1.0),
+                )
+                del self._positions[w.ticker]
+                new_exits += 1
+
+        # Age held positions
+        for ticker in self._positions:
+            self._positions[ticker]["days_held"] = \
+                self._positions[ticker].get("days_held", 0) + 1
+
+        # Update allocator state
+        self._allocator.update_holdings(weights)
+
+        # Snapshot
+        self._log_shadow_snapshot(now, scan_map)
+
+        total = len(self._positions)
+        log.info(f"  [SHADOW] {new_entries} enter | {new_exits} exit | "
+                 f"{total} held | thresholds: conf≥{self.SHADOW_ENTRY_CONFIDENCE}, "
+                 f"persist≥{self.SHADOW_PERSISTENCE_DAYS}")
+
+    def _log_shadow_trade(
+        self, timestamp: str, ticker: str, action: str,
+        direction: str, scan: TickerScan,
+        score: float = 0.0, pnl: float | None = None,
+        pnl_pct: float | None = None, alt_boost: float = 1.0,
+    ):
+        notional = None
+        if action == "ENTER":
+            notional = min(
+                self.capital / self.SHADOW_MAX_POSITIONS,
+                config.CITRINE_MAX_NOTIONAL,
+            )
+        elif action == "EXIT" and ticker in self._positions:
+            notional = self._positions[ticker].get("notional", 0)
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """INSERT INTO shadow_trades
+                (timestamp, ticker, action, direction, price, notional,
+                 pnl, pnl_pct, regime, confidence, persistence,
+                 confirmations, realized_vol, citrine_score, sector,
+                 entry_atr, regime_half_life, alt_boost)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    timestamp, ticker, action, direction,
+                    round(scan.current_price, 4),
+                    round(notional, 2) if notional else None,
+                    round(pnl, 2) if pnl is not None else None,
+                    round(pnl_pct, 2) if pnl_pct is not None else None,
+                    scan.regime_cat,
+                    round(scan.confidence, 4),
+                    scan.persistence,
+                    scan.confirmations,
+                    round(scan.realized_vol, 4) if scan.realized_vol else None,
+                    round(score, 4),
+                    scan.sector,
+                    round(getattr(scan, "current_atr", 0.0) or 0.0, 4),
+                    round(getattr(scan, "regime_half_life", 0.0) or 0.0, 2),
+                    round(alt_boost, 3),
+                ),
+            )
+            conn.commit()
+
+    def _log_shadow_snapshot(self, timestamp: str, scan_map: dict):
+        """Write a lightweight snapshot of shadow positions."""
+        # Mark-to-market
+        for ticker, pos in self._positions.items():
+            scan = scan_map.get(ticker)
+            if scan and scan.current_price > 0:
+                pos["current_price"] = scan.current_price
+
+        equity = sum(
+            p.get("notional", 0) * (
+                1 + (p.get("current_price", p["entry_price"]) - p["entry_price"])
+                / p["entry_price"]
+            ) if p["entry_price"] > 0 else 0
+            for p in self._positions.values()
+        )
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """INSERT INTO shadow_snapshots
+                (timestamp, num_positions, theoretical_equity, positions_json)
+                VALUES (?, ?, ?, ?)""",
+                (timestamp, len(self._positions), round(equity, 2),
+                 json.dumps(self._positions)),
+            )
+            conn.commit()
+
+
 class CitrineLiveEngine:
     """
     CITRINE daily portfolio rotation engine.
@@ -193,6 +458,13 @@ class CitrineLiveEngine:
         self._cycles_since_restart = 0
         self._KILL_SWITCH_GRACE_CYCLES = 3  # Skip kill-switch for first 3 cycles
 
+        # Shadow tracker: relaxed-threshold allocator for data harvesting
+        self.shadow = ShadowTracker(
+            db_path=self.db_path,
+            capital=self.capital,
+            long_only=self.long_only,
+        )
+
         # Restore state from DB if previous session exists
         self._restore_state_from_db()
 
@@ -200,6 +472,9 @@ class CitrineLiveEngine:
                  f"({'TEST' if test_mode else 'LIVE'})")
         log.info(f"Long-only: {long_only} | Cooldown: {cooldown_mode}")
         log.info(f"Kill-switch grace period: {self._KILL_SWITCH_GRACE_CYCLES} cycles")
+        log.info(f"Shadow tracker: conf≥{ShadowTracker.SHADOW_ENTRY_CONFIDENCE}, "
+                 f"persist≥{ShadowTracker.SHADOW_PERSISTENCE_DAYS}, "
+                 f"max {ShadowTracker.SHADOW_MAX_POSITIONS} positions")
 
     # ── Risk Engine Constants (Sprint 9) ─────────────────────────────────────
     CHANDELIER_MULTIPLIER = 2.0     # MAE calibration: 95th pctile = 1.793 ATR × 1.1
@@ -471,6 +746,12 @@ class CitrineLiveEngine:
 
         # Step 4: Update allocator state
         self.allocator.update_holdings(weights)
+
+        # Step 4b: Shadow tracker — run relaxed-threshold allocator on same scans
+        try:
+            self.shadow.run_shadow_cycle(scans, alt_data_boosts=alt_data_boosts)
+        except Exception as e:
+            log.warning(f"[SHADOW] Shadow cycle failed (non-fatal): {e}")
 
         # Step 5: Log portfolio snapshot + cache regime counts for intraday snapshots
         self._last_bull_count = bull_count
