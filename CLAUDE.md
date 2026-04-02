@@ -612,9 +612,9 @@ Where:
 
 ### Current Phase: All Four Sub-Projects Running 24/7 on Oracle Cloud (2026-03-22)
 - **8 systemd services + watchdog timer deployed to Oracle Cloud VM** (VM.Standard.E2.1.Micro, 1 OCPU, 1GB RAM) with auto-restart. Watchdog monitors all 8 services (4 traders + 4 dashboards) every 15 min.
-- **AGATE** running `--test` with ensemble HMM on 14 crypto tickers. First live BUY: ENAUSD (8/8 confirmations, 0.98 confidence, 2026-03-26). Paper P&L tracking via `open_positions` table (Sprint 7). **Sprint 8 (2026-03-28)**: 4 tickers (LTC/SUI/DOGE/ADA) only had ~95d data — backfilling to 730d, then re-optimizing. 12/14 tickers have per-ticker configs. Config: `extended_v2`/7cf (stability-tested Sharpe +0.837).
-- **BERYL** running 98-ticker ensemble rotation with up to 3 positions (58 with BERYL-optimized configs, 40 use defaults). 1 closed trade: ARM +$23.11 (+2.77%), re-entered ARM @ $144.27 on 2026-03-27. **Sprint 8 fix (2026-03-28)**: was loading `citrine_per_ticker_configs.json` instead of `beryl_per_ticker_configs.json` — all signals computed with wrong HMM params. Fixed config loading + added `_load_ticker_universe()` for two-layer design (citrine config = 98-ticker scan universe, beryl config = 58 optimized HMM params). Watchdog false-positive fix: sleeping Python (1-5MB) triggered <5MB zombie threshold, restarting traders every ~45 min.
-- **CITRINE** running 82-ticker long-only live test. **Sprint 9 risk engine DEPLOYED + LIVE-CONFIRMED (2026-03-31)**: 2 scan cycles completed successfully on VM. Chandelier exit (entry_atr × 2.0), ATR position sizing (inverse vol parity, 1% risk budget — first live sizes: HON $586, NVDA $443, CEG $190), confidence velocity exit, MAE/MFE tracking (8 new DB columns — first excursion data: INTC MAE:-0.1% MFE:+5.4%). Chandelier coverage: 0/12 → 5/13 after one cycle (builds organically). Current: $24,646 equity, 13 positions, 41% cash, ~116 trades, 47% win rate.
+- **AGATE** running `--test` with ensemble HMM on 14 crypto tickers, scanning every 4h. 5 open positions (2026-04-01): DOGE, ETH, LINK, XRP, HBAR. 4 total trades (1 win). Paper P&L tracking via `open_positions` table (Sprint 7). **Sprint 8 (2026-03-28)**: 4 tickers (LTC/SUI/DOGE/ADA) only had ~95d data — backfilling to 730d, then re-optimizing. 12/14 tickers have per-ticker configs. Config: `extended_v2`/7cf (stability-tested Sharpe +0.837).
+- **BERYL** running 98-ticker ensemble rotation with up to 3 positions (58 with BERYL-optimized configs, 40 use defaults). 1 closed trade: ARM +$23.11 (+2.77%). 3 open positions (2026-04-01): MCHP +1.1%, ARM +2.4%, MELI -0.7%. **Sprint 10 (2026-04-01, DEPLOYED)**: 5 critical fixes — (1) position persistence via `portfolio_snapshots` table + `_restore_state_from_db()` (positions were silently lost on restart — March 30 ARM/MELI/TMUS abandoned, P&L unrecoverable), (2) `_write_status()` moved after `process_signals()` (dashboard showed stale pre-trade state), (3) dashboard dict→list normalization, (4) `current_price` added to status JSON, (5) `_log_snapshot()` after every scan cycle. **Sprint 8 fix (2026-03-28)**: config cross-contamination (was loading CITRINE's HMM params), ticker universe separation, watchdog false-positive fix.
+- **CITRINE** running 82-ticker long-only live test. **Sprint 9 risk engine DEPLOYED + LIVE-CONFIRMED (2026-03-31)**: Chandelier exit (entry_atr × 2.0), ATR position sizing (inverse vol parity, 1% risk budget), confidence velocity exit, MAE/MFE tracking (8 new DB columns). **2026-04-01 activity**: 2 trailing_stop exits (LIN -2.72%, CEG -3.21%), 2 regime_flip exits with MFE tracking (STX +16.74% MFE:+16.9%, SHOP +6.39% MFE:+6.7%), 7 new entries. Current: $24,701 equity, 14 positions, 48% cash, 237 trades, 9.7% win rate. Risk engine: 2/14 positions with Chandelier stops, intraday checks every 4h (+0.48% unrealized).
 - **DIAMOND** running WebSocket anomaly detection on all Kalshi markets with paper trading engine + ML scorer (Lasso, AUC 0.823, A/B logging mode). Dashboard at :8080.
 - **All 4 dashboards accessible**: :8060 (AGATE+BERYL, with regime panels), :8070 (CITRINE, with position health + signal frequency), :8080 (DIAMOND, anomaly feed + portfolio status), :8090 (Consolidated, all projects)
 - **Watchdog timer** runs every 15 minutes — checks journald log freshness + memory footprint, auto-restarts zombie services. Deployed 2026-03-26 after all 3 traders went zombie simultaneously.
@@ -691,6 +691,13 @@ Where:
   5. **DB schema expanded**: 8 new columns on trades table — `entry_atr`, `exit_reason`, `mae_pct`, `mfe_pct`, `mae_atr`, `mfe_atr`, `entry_confidence`, `hold_days`. Exit reasons categorized: `chandelier_stop`, `conf_velocity`, `regime_flip`, `kill_switch`, `manual`.
   6. **Metrics gap addressed**: 17 metrics across trade/position/portfolio levels previously not tracked. Key gaps now filled: MAE/MFE, entry confidence, exit reason categorization. Remaining gaps: rolling Sharpe for BERYL/CITRINE, profit factor, portfolio heat, win/loss streak.
   7. **Live deployment confirmed** (2026-03-31): Deployed to VM, 2 full scan cycles completed. Cycle 1: 4 exits (MDLZ -1.04%, INTC +5.20%, KDP -1.07%, CSX +1.94% — all with MAE/MFE logged), 5 ATR-sized entries (HON $586, GOOGL $506, NVDA $443, ABNB $262, CEG $190). Cycle 2: 5/13 positions have Chandelier stops (new entries only; old positions safely fall back to -2% pct stop). Cash floor enforced correctly (skipped VRSK and MSFT entries that would breach 41% target). ATR sizing produced position sizes 88-96% smaller than old flat $5k cap — volatile stocks like CEG ($15.36 ATR) get appropriately tiny positions ($190).
+
+- **Sprint 10 — BERYL Position Persistence & Dashboard Fixes** (2026-04-01, DEPLOYED):
+  1. **Position persistence (CRITICAL)**: BERYL had no state persistence — positions silently lost on every service restart. March 30 positions (ARM, MELI, TMUS — $2,499 notional) abandoned when service restarted (PID 270432→309683). No exits logged, P&L unrecoverable. **Fix**: Added `portfolio_snapshots` DB table, `_log_snapshot()` (writes after every scan cycle), `_restore_state_from_db()` (rebuilds positions on startup). Mirrors CITRINE Sprint 1 pattern.
+  2. **Status file timing (CRITICAL)**: `_write_status()` called BEFORE `process_signals()` — dashboard always showed pre-trade state. Fixed by moving after `process_signals()`.
+  3. **Dashboard dict normalization**: `_beryl_regime_panel()` in `live_dashboard.py` did `positions[:3]` which fails on dicts. Fixed with `isinstance` check + `list(dict.values())`.
+  4. **Current price in status**: Added `current_price` to scan_summary entries for dashboard unrealized P&L.
+  5. **Snapshot logging**: `_log_snapshot()` writes position JSON + equity + count after every scan. First verified snapshot: 3 positions (MCHP, ARM, MELI), $833 each.
 
 ### CITRINE Optimization & Portfolio Rotation
 - **Per-ticker HMM optimization**: COMPLETE + RE-OPTIMIZED (585 trials across 100 tickers, 82 positive Sharpe — 83%)
@@ -1001,6 +1008,7 @@ Live monitoring dashboard (Dash app at port 8060).
 - Trade table with all executed trades
 - BERYL optimization progress panel
 - Regime status panels: BULL/BEAR/CHOP badges for AGATE and BERYL (reads `agate_status.json` and `beryl_status.json`)
+- **Sprint 10 fix**: `_beryl_regime_panel()` normalizes dict positions to list (`isinstance` check + `list(dict.values())`) — BERYL stores positions as `{"MCHP": {...}}` dict, not a list like AGATE
 - Separate from backtest dashboard (`src/dashboard.py` at port 8050)
 
 ### `walk_forward_ndx.py`
@@ -1034,20 +1042,23 @@ BERYL Phase 2 optimizer — focused on TSLA + NVDA only with intraday timeframes
 - Outputs: `beryl_p2_results.csv`, `beryl_p2_heatmap.html`
 
 ### `live_trading_beryl.py`
-BERYL live trading engine for NDX100 equities — 98-ticker ensemble rotation (Sprint 5 rewrite).
+BERYL live trading engine for NDX100 equities — 98-ticker ensemble rotation (Sprint 5 rewrite, Sprint 10 persistence).
 - CLI: `--test`, `--tickers NVDA,TSLA,...` (default: all 98 NDX100 tickers), `--min-confirmations N` (override per-ticker thresholds)
 - **Ensemble HMM** (Sprint 5): uses `EnsembleHMM(n_states_list=[N-1, N, N+1])` per ticker with fallback to single `HMMRegimeModel(n_states=4)` if ensemble fails
 - **Multi-position** (Sprint 5): holds up to `MAX_POSITIONS = 3` ($833 each), per-ticker cooldowns (`self.cooldowns: dict[str, datetime]`)
 - **365-day lookback** (Sprint 5): `LOOKBACK_DAYS = 365`, fetches 2 years of data → 100% convergence (was 71% at 180 days)
+- **Position persistence** (Sprint 10): `_restore_state_from_db()` rebuilds `self.positions` from `portfolio_snapshots` table on startup. `_log_snapshot()` writes position JSON after every scan cycle. Mirrors CITRINE's Sprint 1 pattern.
 - Daily signal loop (Mon-Fri only), scans all 98 tickers with 12s rate-limit between Polygon calls
 - `_scan_all_tickers()` — sequential scan with `gc.collect()` between tickers
 - `_pick_best_buys(signals, n_slots)` — scores BUY signals by confidence × (confirmations / threshold) × alt_data_boost; returns top N for available position slots, filtering out held tickers and cooldown tickers
 - `process_signals()` — exits BEAR positions, enters top BUY signals up to MAX_POSITIONS cap
 - `_close_position(ticker, exit_price, confirmations)` — closes specific position by ticker
 - `_check_intraday_risk()` — loops through all positions every 4h, emergency exit if single position >10% loss or total >5%
-- `_write_status(signals)` — writes `beryl_status.json` with scan_summary, positions list, convergence stats
+- `_write_status(signals)` — writes `beryl_status.json` with scan_summary (including `current_price`), positions list, convergence stats. **Sprint 10 fix**: called AFTER `process_signals()` (was before — showed pre-trade state)
+- `_log_snapshot(signals)` — Sprint 10: persists current positions to `portfolio_snapshots` table after every scan cycle for restart recovery
+- `_restore_state_from_db()` — Sprint 10: reads last `portfolio_snapshots` row, rebuilds `self.positions` dict with `BerylPosition` objects
 - Position sizing: MAX_NOTIONAL = $2,500 total ($833 per position), 10bps slippage + 0.04% commission
-- Logs trades to `beryl_trades.db` (separate from AGATE's `paper_trades.db`)
+- Logs trades to `beryl_trades.db` (separate from AGATE's `paper_trades.db`). DB includes `portfolio_snapshots` table (Sprint 10).
 - Kill-switch rules: total loss > 2%, 0/10 wins, rolling 5-trade Sharpe < 0.3 (with 3-cycle grace period)
 - Default fallback config: `n_states=4, feature_set="base", confirmations=5, cov_type="diag"`
 
@@ -1442,8 +1453,14 @@ Sunday optimizer cron jobs at 2am/4am/8am were silently skipped when the MacBook
 ### BERYL ensemble scan takes ~33 min (vs ~16 min single-model)
 Ensemble HMM trains 3 models per ticker (Sprint 5). With 98 tickers × 12s rate limit × 3 HMM fits, a full scan takes ~33 minutes. This is acceptable for daily-bar trading but means signals are generated ~17 min later than before. If scan duration becomes an issue, consider reducing `gc.collect()` frequency or parallelizing non-Polygon-dependent work.
 
-### BERYL multi-position DB schema unchanged
-The `beryl_trades.db` schema still tracks individual trades (entry/exit per ticker). Multi-position mode logs each position's entry/exit independently. There is no portfolio-level snapshot table (unlike CITRINE which has `portfolio_snapshots`). For portfolio-level analysis, query all open trades from the trades table.
+### BERYL position persistence added (Sprint 10 — FIXED 2026-04-01)
+Prior to Sprint 10, BERYL had NO state persistence — positions were silently lost on every service restart. March 30 positions (ARM, MELI, TMUS — $2,499 total notional) were abandoned when the service restarted between March 30 and 31 (PID changed 270432 → 309683). No exits logged, P&L never recorded — unrecoverable. **Fix**: Added `portfolio_snapshots` table to `beryl_trades.db`, `_log_snapshot()` after every scan cycle, and `_restore_state_from_db()` on startup. Mirrors CITRINE's Sprint 1 pattern.
+
+### BERYL status file showed stale data (Sprint 10 — FIXED 2026-04-01)
+`_write_status()` was called BEFORE `process_signals()` in the main loop — the dashboard JSON always showed pre-trade state (empty positions after restart, no price movement). Fixed by moving `_write_status()` after `process_signals()`.
+
+### BERYL dashboard positions dict vs list (Sprint 10 — FIXED 2026-04-01)
+`_beryl_regime_panel()` in `live_dashboard.py` assumed positions were a list (`positions[:3]`), but BERYL stores them as a dict (`{"MCHP": {...}}`). Fixed with `isinstance(raw_positions, dict)` → `list(dict.values())`.
 
 ### Insider 10b5-1 field may be absent in older filings
 The `aff10b5One` XML field in SEC Form 4 was introduced relatively recently. Older filings may not have this field, in which case `is_10b5_1` defaults to `False` (conservative — treats as discretionary). This means the smart scoring is most accurate for recent filings (last 1-2 years).
