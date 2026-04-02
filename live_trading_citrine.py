@@ -190,14 +190,32 @@ class ShadowTracker:
                     confidence REAL,
                     persistence INTEGER,
                     confirmations INTEGER,
+                    confirmations_short INTEGER,
                     realized_vol REAL,
                     citrine_score REAL,
                     sector TEXT,
                     entry_atr REAL,
                     regime_half_life REAL,
-                    alt_boost REAL
+                    alt_boost REAL,
+                    target_weight REAL,
+                    scaled_weight REAL,
+                    live_would_enter INTEGER,
+                    indicator_json TEXT
                 )
             """)
+            # Safe migration: add columns if table already exists
+            for col, typ in [
+                ("confirmations_short", "INTEGER"),
+                ("target_weight", "REAL"),
+                ("scaled_weight", "REAL"),
+                ("live_would_enter", "INTEGER"),
+                ("indicator_json", "TEXT"),
+            ]:
+                try:
+                    conn.execute(
+                        f"ALTER TABLE shadow_trades ADD COLUMN {col} {typ}")
+                except sqlite3.OperationalError:
+                    pass  # column already exists
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS shadow_snapshots (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -288,7 +306,7 @@ class ShadowTracker:
                 }
                 self._log_shadow_trade(
                     now, w.ticker, "ENTER", w.direction, scan,
-                    score=w.raw_score,
+                    weight=w, score=w.raw_score,
                     alt_boost=(alt_data_boosts or {}).get(w.ticker, 1.0),
                 )
                 new_entries += 1
@@ -310,7 +328,7 @@ class ShadowTracker:
 
                 self._log_shadow_trade(
                     now, w.ticker, "EXIT", pos["direction"], scan,
-                    pnl=pnl, pnl_pct=pnl_pct,
+                    weight=w, pnl=pnl, pnl_pct=pnl_pct,
                     alt_boost=(alt_data_boosts or {}).get(w.ticker, 1.0),
                 )
                 del self._positions[w.ticker]
@@ -335,6 +353,7 @@ class ShadowTracker:
     def _log_shadow_trade(
         self, timestamp: str, ticker: str, action: str,
         direction: str, scan: TickerScan,
+        weight: PortfolioWeight | None = None,
         score: float = 0.0, pnl: float | None = None,
         pnl_pct: float | None = None, alt_boost: float = 1.0,
     ):
@@ -347,14 +366,28 @@ class ShadowTracker:
         elif action == "EXIT" and ticker in self._positions:
             notional = self._positions[ticker].get("notional", 0)
 
+        # Would the live engine have entered this trade?
+        live_would_enter = int(
+            scan.confidence >= 0.90
+            and scan.persistence >= 3
+            and scan.regime_cat == "BULL"  # long-only mode
+        )
+
+        # Indicator breakdown JSON
+        indicator_json = json.dumps(
+            getattr(scan, "indicator_details", {})
+        ) if getattr(scan, "indicator_details", None) else None
+
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """INSERT INTO shadow_trades
                 (timestamp, ticker, action, direction, price, notional,
                  pnl, pnl_pct, regime, confidence, persistence,
-                 confirmations, realized_vol, citrine_score, sector,
-                 entry_atr, regime_half_life, alt_boost)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 confirmations, confirmations_short, realized_vol,
+                 citrine_score, sector, entry_atr, regime_half_life,
+                 alt_boost, target_weight, scaled_weight,
+                 live_would_enter, indicator_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     timestamp, ticker, action, direction,
                     round(scan.current_price, 4),
@@ -365,12 +398,17 @@ class ShadowTracker:
                     round(scan.confidence, 4),
                     scan.persistence,
                     scan.confirmations,
+                    scan.confirmations_short,
                     round(scan.realized_vol, 4) if scan.realized_vol else None,
                     round(score, 4),
                     scan.sector,
                     round(getattr(scan, "current_atr", 0.0) or 0.0, 4),
                     round(getattr(scan, "regime_half_life", 0.0) or 0.0, 2),
                     round(alt_boost, 3),
+                    round(weight.target_weight, 6) if weight else None,
+                    round(weight.scaled_weight, 6) if weight else None,
+                    live_would_enter,
+                    indicator_json,
                 ),
             )
             conn.commit()

@@ -86,6 +86,9 @@ class TickerScan:
     current_atr:     float = 0.0    # 14-period ATR at scan time (for Chandelier exit & position sizing)
     scan_time:       str = ""
     error:           Optional[str] = None
+    # Per-indicator breakdown for shadow/harvesting analysis (Sprint 11)
+    # Keys: rsi, momentum, volatility, volume, adx, price_trend, macd, stochastic
+    indicator_details: dict = field(default_factory=dict)
 
     @property
     def is_bull(self) -> bool:
@@ -267,6 +270,17 @@ class CitrineScanner:
             # Count LONG confirmations from latest bar
             long_confirms = int(last.get("confirmation_count", 0))
 
+            # Per-indicator breakdown (for shadow/harvesting analysis)
+            _INDICATOR_CHECKS = [
+                "check_rsi", "check_momentum", "check_volatility",
+                "check_volume", "check_adx", "check_price_trend",
+                "check_macd", "check_stochastic",
+            ]
+            indicator_details = {}
+            for col in _INDICATOR_CHECKS:
+                if col in last.index:
+                    indicator_details[col.replace("check_", "")] = bool(last[col])
+
             # Count SHORT confirmations manually from latest bar
             short_confirms = self._count_short_confirmations(last)
 
@@ -309,6 +323,7 @@ class CitrineScanner:
                 regime_half_life=half_life,
                 current_atr=atr_val,
                 scan_time=datetime.now(tz=timezone.utc).isoformat(),
+                indicator_details=indicator_details,
             )
 
         except Exception as e:
