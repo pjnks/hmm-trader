@@ -131,13 +131,13 @@ def _is_trading_day(d: date) -> bool:
 # ── Data helpers ──────────────────────────────────────────────────────────────
 
 def _load_trades() -> pd.DataFrame:
-    """Load closed trades (EXITs) from citrine_trades.db."""
+    """Load closed trades (EXITs + STOP_EXITs) from citrine_trades.db."""
     if not DB_PATH.exists():
         return pd.DataFrame()
     try:
         with sqlite3.connect(str(DB_PATH)) as conn:
             return pd.read_sql_query(
-                "SELECT * FROM trades WHERE action = 'EXIT' "
+                "SELECT * FROM trades WHERE action IN ('EXIT', 'STOP_EXIT') "
                 "ORDER BY timestamp DESC", conn,
             )
     except Exception:
@@ -693,14 +693,13 @@ def update_dashboard(_n):
         "display": "flex", "flexDirection": "column",
     })
 
-    # ── Top row: 5 metric cards ────────────────────────────────────────────
+    # ── Top row: 6 metric cards (realized/unrealized P&L split) ─────────
     if not snap_df.empty:
         latest = snap_df.iloc[-1]
         equity = latest["total_equity"]
         pnl_total = equity - 25000
         pnl_color = GREEN if pnl_total >= 0 else RED
         num_pos = latest["num_positions"]
-        bull_count = latest.get("bull_count", 0)
         # Use actual cash / equity (not allocator target which can be misleading)
         cash_actual = latest.get("cash", equity)
         cash_pct_val = cash_actual / equity if equity > 0 else 1.0
@@ -709,22 +708,26 @@ def update_dashboard(_n):
         pnl_total = 0
         pnl_color = TEXT_DIM
         num_pos = 0
-        bull_count = 0
         cash_pct_val = 1.0
 
     closed_count = len(trades_df)
     win_rate = 0
+    realized_pnl = 0.0
     if closed_count > 0:
         win_rate = (trades_df["pnl"] > 0).sum() / closed_count * 100
+        realized_pnl = float(trades_df["pnl"].dropna().sum())
+    unrealized_pnl = pnl_total - realized_pnl
+    realized_color = GREEN if realized_pnl >= 0 else RED
+    unrealized_color = GREEN if unrealized_pnl >= 0 else RED
 
     top_row = dbc.Row([
         dbc.Col(_metric_card("Total Equity", f"${equity:,.0f}", pnl_color), md=2, sm=4),
-        dbc.Col(_metric_card("Total P&L", f"${pnl_total:+,.0f}", pnl_color), md=2, sm=4),
+        dbc.Col(_metric_card("Realized P&L", f"${realized_pnl:+,.0f}", realized_color), md=2, sm=4),
+        dbc.Col(_metric_card("Unrealized P&L", f"${unrealized_pnl:+,.0f}", unrealized_color), md=2, sm=4),
         dbc.Col(_metric_card("Positions", str(num_pos), BLUE), md=2, sm=4),
         dbc.Col(_metric_card("Win Rate", f"{win_rate:.0f}%" if closed_count > 0 else "N/A",
                              GREEN if win_rate > 50 else (YELLOW if win_rate > 40 else RED)),
                 md=2, sm=4),
-        dbc.Col(_metric_card("BULL Tickers", str(bull_count), GREEN), md=2, sm=4),
         dbc.Col(_metric_card("Cash", f"{cash_pct_val:.0%}", BLUE), md=2, sm=4),
     ], className="g-2", style={"marginBottom": "8px"})
 

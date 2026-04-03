@@ -666,6 +666,8 @@ class CitrineLiveEngine:
                         entry_date = datetime.fromisoformat(ts.replace("Z", "+00:00"))
                         days_held = (datetime.now(tz=timezone.utc) - entry_date).days
                         self.allocator._holdings[ticker] = max(1, days_held)
+                        # Restore true entry_time for day-0 Chandelier immunity
+                        self.positions[ticker].entry_time = ts
                     except (ValueError, TypeError):
                         self.allocator._holdings[ticker] = 1
 
