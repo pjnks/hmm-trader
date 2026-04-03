@@ -427,22 +427,25 @@ def _load_diamond_trades() -> pd.DataFrame:
 def _load_emerald_trades() -> pd.DataFrame:
     """Load EMERALD predictions, normalizing schema to match other projects.
 
-    EMERALD uses pnl (dollars, already correct) and resolved_at (Unix epoch float)
-    in its predictions table.  We filter to resolved predictions only.
+    EMERALD uses pnl (dollars, already correct) and predicted_at (Unix epoch float)
+    in its predictions table.  We use predicted_at (when bet was placed) rather than
+    resolved_at (when outcome was determined) because games resolve in batches,
+    compressing all timestamps into a few hours.  predicted_at spreads data across
+    the actual decision timeline.
     """
     for candidate in EMERALD_DB_CANDIDATES:
         if candidate.exists():
             try:
                 with sqlite3.connect(str(candidate)) as conn:
                     df = pd.read_sql_query(
-                        "SELECT market_type, side, pnl, resolved_at "
+                        "SELECT market_type, side, pnl, predicted_at "
                         "FROM predictions "
                         "WHERE pnl IS NOT NULL AND resolved_at IS NOT NULL "
-                        "ORDER BY resolved_at ASC", conn)
+                        "ORDER BY predicted_at ASC", conn)
                 if df.empty:
                     return pd.DataFrame()
-                df["timestamp"] = pd.to_datetime(df["resolved_at"], unit="s", utc=True)
-                df = df.drop(columns=["resolved_at"])
+                df["timestamp"] = pd.to_datetime(df["predicted_at"], unit="s", utc=True)
+                df = df.drop(columns=["predicted_at"])
                 # Rename market_type→ticker for consistency with other loaders
                 df = df.rename(columns={"market_type": "ticker"})
                 return df
@@ -739,11 +742,14 @@ def _build_pnl_distribution(all_trades: dict[str, pd.DataFrame]) -> go.Figure:
     return fig
 
 
-def _build_metrics_over_time(all_trades: dict[str, pd.DataFrame]) -> go.Figure:
+def _build_metrics_over_time(all_trades: dict[str, pd.DataFrame],
+                             emerald_bankroll: pd.DataFrame | None = None) -> go.Figure:
     """2x2 subplot: cumulative P&L, cumulative trades, rolling win rate, rolling Sharpe.
 
     Each metric is computed per-trade and plotted over calendar time.
     Uses adaptive window: min(20, n_trades) for projects with few trades.
+    For EMERALD, cumulative P&L uses bankroll data (ground truth) instead of
+    raw prediction pnl sums (which use flat bet sizing, not Kelly).
     """
     fig = make_subplots(
         rows=2, cols=2,
@@ -770,13 +776,26 @@ def _build_metrics_over_time(all_trades: dict[str, pd.DataFrame]) -> go.Figure:
         w = min(target_window, n)
 
         # 1) Cumulative P&L (row=1, col=1)
-        cum_pnl = np.cumsum(pnls)
-        fig.add_trace(go.Scatter(
-            x=ts, y=cum_pnl,
-            name=project, legendgroup=project,
-            line=dict(color=color, width=1.5),
-            showlegend=True,
-        ), row=1, col=1)
+        # For EMERALD, use bankroll data (Kelly-sized ground truth) instead of
+        # raw prediction pnl (flat sizing — sums to ~$157 vs bankroll's ~$826).
+        if project == "EMERALD" and emerald_bankroll is not None and not emerald_bankroll.empty and "change" in emerald_bankroll.columns:
+            bk = emerald_bankroll.sort_values("timestamp").copy()
+            bk_pnl = np.cumsum(bk["change"].values.astype(float))
+            bk_ts = bk["timestamp"].values
+            fig.add_trace(go.Scatter(
+                x=bk_ts, y=bk_pnl,
+                name=project, legendgroup=project,
+                line=dict(color=color, width=1.5),
+                showlegend=True,
+            ), row=1, col=1)
+        else:
+            cum_pnl = np.cumsum(pnls)
+            fig.add_trace(go.Scatter(
+                x=ts, y=cum_pnl,
+                name=project, legendgroup=project,
+                line=dict(color=color, width=1.5),
+                showlegend=True,
+            ), row=1, col=1)
 
         # 2) Cumulative trades (row=1, col=2)
         cum_trades = np.arange(1, n + 1)
@@ -856,13 +875,18 @@ def _build_metrics_over_time(all_trades: dict[str, pd.DataFrame]) -> go.Figure:
         fig.update_layout(**{ax_name: axis_style})
 
     # Y-axis labels
-    fig.update_yaxes(title=dict(text="$", font=dict(size=8)), row=1, col=1)
-    fig.update_yaxes(title=dict(text="#", font=dict(size=8)), row=1, col=2)
-    fig.update_yaxes(title=dict(text="%", font=dict(size=8)), row=2, col=1)
-    fig.update_yaxes(title=dict(text="σ", font=dict(size=8)), row=2, col=2)
+    fig.update_yaxes(title=dict(text="P&L ($)", font=dict(size=8)), row=1, col=1)
+    fig.update_yaxes(title=dict(text="Trades", font=dict(size=8)), row=1, col=2)
+    fig.update_yaxes(title=dict(text="Win Rate", font=dict(size=8)), row=2, col=1)
+    fig.update_yaxes(title=dict(text="Sharpe", font=dict(size=8)), row=2, col=2)
 
-    # Format win rate as percentage
+    # Format: P&L as dollars, win rate as percentage
+    fig.update_yaxes(tickprefix="$", tickformat=",.0f", row=1, col=1)
     fig.update_yaxes(tickformat=".0%", row=2, col=1)
+
+    # X-axis date formatting — show month/day, skip hours when range > 1 day
+    for row, col in [(1, 1), (1, 2), (2, 1), (2, 2)]:
+        fig.update_xaxes(tickformat="%b %d", row=row, col=col)
 
     return fig
 
@@ -1349,7 +1373,7 @@ def _update_dashboard_inner(active_filter=None):
         html.Div([
             html.Div(
                 dcc.Graph(id="metrics-time-chart",
-                          figure=_apply_filter(_build_metrics_over_time(all_trades), active_filter),
+                          figure=_apply_filter(_build_metrics_over_time(all_trades, emerald_bankroll=emerald_bankroll), active_filter),
                           config={"displayModeBar": False},
                           style={"height": "380px"}),
                 className="chart-container",

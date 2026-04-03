@@ -829,9 +829,16 @@ class CitrineLiveEngine:
             # Update MAE/MFE excursions with latest price
             pos.update_excursions(price)
 
-            # 1. Chandelier trailing stop
+            # 1. Chandelier trailing stop (with day-0 immunity)
+            #    Skip Chandelier on entry day — stop needs ≥1 daily bar to
+            #    establish a meaningful trailing level.  The -2% hard stop in
+            #    _check_intraday_risk() still protects against blowups.
+            entry_date = datetime.fromisoformat(pos.entry_time).date()
+            today = datetime.now(tz=timezone.utc).date()
+            is_day_zero = (entry_date == today)
+
             stop = pos.chandelier_stop(self.CHANDELIER_MULTIPLIER)
-            if stop is not None:
+            if stop is not None and not is_day_zero:
                 if pos.direction == "LONG" and price < stop:
                     exits_triggered.append((
                         ticker, price,
@@ -847,6 +854,9 @@ class CitrineLiveEngine:
                         f"LWM=${pos.low_watermark:.2f})"
                     ))
                     continue
+            elif stop is not None and is_day_zero:
+                log.info(f"    {ticker}: day-0 Chandelier immunity "
+                         f"(stop=${stop:.2f}, price=${price:.2f})")
 
             # 2. Confidence velocity exit
             prev_close = price  # approximate — use scan price as proxy
@@ -1429,10 +1439,16 @@ class CitrineLiveEngine:
 
     def _check_intraday_risk(self) -> None:
         """
-        Intra-day risk check — called every 4 hours during sleep.
+        Intra-day risk check — called every hour (market hours) or 4 hours (off hours).
         Fetches latest prices for held tickers and checks unrealized P&L.
 
-        Per-position trailing stop (Sprint 9):
+        Only the hard -2% per-position stop runs here (catastrophic safety net).
+        Chandelier stops are intentionally excluded — they operate on daily-bar
+        observation frequency and are evaluated only in _check_risk_exits() during
+        the main daily cycle.  Running Chandelier intraday caused 6 same-day
+        stop-outs on 2026-04-02 (execution-observation misalignment).
+
+        Per-position trailing stop:
           - Any position unrealized loss > 2% → force-exit immediately
         Warnings:
           - Portfolio unrealized loss > 3%
@@ -1469,19 +1485,11 @@ class CitrineLiveEngine:
             unrealized_pct = unrealized / pos.notional if pos.notional > 0 else 0
             total_unrealized += unrealized
 
-            # Chandelier stop check (Sprint 9) — takes priority over pct stop
-            stop = pos.chandelier_stop(self.CHANDELIER_MULTIPLIER)
-            if stop is not None:
-                if ((pos.direction == "LONG" and current_price < stop) or
-                        (pos.direction == "SHORT" and current_price > stop)):
-                    msg = (f"  [CHANDELIER] {ticker} breached stop ${stop:.2f} "
-                           f"(price=${current_price:.2f}, ATR=${pos.entry_atr:.2f})")
-                    log.warning(msg)
-                    warnings.append(msg)
-                    stop_loss_exits.append((ticker, current_price))
-                    continue
+            # Chandelier stops are evaluated ONLY in the daily cycle
+            # (_check_risk_exits) to align with daily-bar observation frequency.
+            # Intraday checks use only the hard -2% stop as a catastrophic safety net.
 
-            # Fallback pct trailing stop (for positions without ATR)
+            # Pct trailing stop (applies to all positions)
             if unrealized_pct < self.TRAILING_STOP_PCT:
                 msg = (f"  [STOP-LOSS] {ticker} hit {unrealized_pct:.1%} "
                        f"(${unrealized:.2f}) — breached {self.TRAILING_STOP_PCT:.0%} stop")

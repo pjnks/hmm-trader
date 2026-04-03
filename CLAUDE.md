@@ -612,9 +612,9 @@ Where:
 
 ### Current Phase: All Four Sub-Projects Running 24/7 on Oracle Cloud (2026-03-22)
 - **8 systemd services + watchdog timer deployed to Oracle Cloud VM** (VM.Standard.E2.1.Micro, 1 OCPU, 1GB RAM) with auto-restart. Watchdog monitors all 8 services (4 traders + 4 dashboards) every 15 min.
-- **AGATE** running `--test` with ensemble HMM on 14 crypto tickers, scanning every 4h. 5 open positions (2026-04-01): DOGE, ETH, LINK, XRP, HBAR. 4 total trades (1 win). Paper P&L tracking via `open_positions` table (Sprint 7). **Sprint 8 (2026-03-28)**: 4 tickers (LTC/SUI/DOGE/ADA) only had ~95d data — backfilling to 730d, then re-optimizing. 12/14 tickers have per-ticker configs. Config: `extended_v2`/7cf (stability-tested Sharpe +0.837).
-- **BERYL** running 98-ticker ensemble rotation with up to 3 positions (58 with BERYL-optimized configs, 40 use defaults). 1 closed trade: ARM +$23.11 (+2.77%). 3 open positions (2026-04-01): MCHP +1.1%, ARM +2.4%, MELI -0.7%. **Sprint 10 (2026-04-01, DEPLOYED)**: 5 critical fixes — (1) position persistence via `portfolio_snapshots` table + `_restore_state_from_db()` (positions were silently lost on restart — March 30 ARM/MELI/TMUS abandoned, P&L unrecoverable), (2) `_write_status()` moved after `process_signals()` (dashboard showed stale pre-trade state), (3) dashboard dict→list normalization, (4) `current_price` added to status JSON, (5) `_log_snapshot()` after every scan cycle. **Sprint 8 fix (2026-03-28)**: config cross-contamination (was loading CITRINE's HMM params), ticker universe separation, watchdog false-positive fix.
-- **CITRINE** running 82-ticker long-only live test. **Sprint 9 risk engine DEPLOYED + LIVE-CONFIRMED (2026-03-31)**: Chandelier exit (entry_atr × 2.0), ATR position sizing (inverse vol parity, 1% risk budget), confidence velocity exit, MAE/MFE tracking (8 new DB columns). **2026-04-01 activity**: 2 trailing_stop exits (LIN -2.72%, CEG -3.21%), 2 regime_flip exits with MFE tracking (STX +16.74% MFE:+16.9%, SHOP +6.39% MFE:+6.7%), 7 new entries. Current: $24,701 equity, 14 positions, 48% cash, 237 trades, 9.7% win rate. Risk engine: 2/14 positions with Chandelier stops, intraday checks every 4h (+0.48% unrealized).
+- **AGATE** running `--test` with ensemble HMM on 14 crypto tickers, scanning every 4h. 5 open positions (2026-04-02): DOGE, ETH, LINK, XRP, SUI. 5 closed trades (1 win), cumulative P&L: -$344.73. **2026-04-02**: Sold HBAR (-$5.00, -0.20%), opened SUI @ $0.88. SOL flipped BEAR (conf 0.80). 12/14 tickers have per-ticker configs. Config: `extended_v2`/7cf.
+- **BERYL** running 98-ticker ensemble rotation with up to 3 positions (58 with BERYL-optimized configs, 40 use defaults). 2 closed trades (2/2 wins, 100%): ARM +$23.11 (+2.77%, 2026-03-23), ARM +$18.50 (+2.22%, 2026-04-02). 3 open positions (2026-04-02): MCHP, MELI, ROP (new — insider 1.15x, score 1.710). **Sprint 10 (2026-04-01, DEPLOYED)**: 5 critical fixes — position persistence, status timing, dashboard dict fix, current_price, snapshot logging. **2026-04-02**: Sold ARM (BEAR conf 0.95), bought ROP. Scan: 98/98, 13 BUY, 43 BEAR — broad BEAR tilt across NDX100.
+- **CITRINE** running 82-ticker long-only live test. **Sprint 9 risk engine DEPLOYED (2026-03-31)**: Chandelier exit (entry_atr × 2.0), ATR position sizing, conf velocity exit, MAE/MFE tracking. **Sprint 11 shadow tracker DEPLOYED (2026-04-02)**: parallel allocator with relaxed thresholds (conf≥0.70, persist≥1, max 30 pos) logs theoretical trades for low-N analysis. 50 shadow trades logged, 22 held vs 9 live. **2026-04-02 activity**: 12 exits (6 regime_flip + 6 Chandelier stops — several same-day entries stopped out), 7 new entries, net ~-$45. Current: $24,663 equity, 9 positions, 59% cash, 249 trades, 83 closed, 30.1% win rate.
 - **DIAMOND** running WebSocket anomaly detection on all Kalshi markets with paper trading engine + ML scorer (Lasso, AUC 0.823, A/B logging mode). Dashboard at :8080.
 - **All 4 dashboards accessible**: :8060 (AGATE+BERYL, with regime panels), :8070 (CITRINE, with position health + signal frequency), :8080 (DIAMOND, anomaly feed + portfolio status), :8090 (Consolidated, all projects)
 - **Watchdog timer** runs every 15 minutes — checks journald log freshness + memory footprint, auto-restarts zombie services. Deployed 2026-03-26 after all 3 traders went zombie simultaneously.
@@ -698,6 +698,14 @@ Where:
   3. **Dashboard dict normalization**: `_beryl_regime_panel()` in `live_dashboard.py` did `positions[:3]` which fails on dicts. Fixed with `isinstance` check + `list(dict.values())`.
   4. **Current price in status**: Added `current_price` to scan_summary entries for dashboard unrealized P&L.
   5. **Snapshot logging**: `_log_snapshot()` writes position JSON + equity + count after every scan. First verified snapshot: 3 positions (MCHP, ARM, MELI), $833 each.
+
+- **Sprint 11 — CITRINE Shadow Tracker & Low-N Analysis** (2026-04-02, DEPLOYED):
+  1. **Shadow/harvesting tracker**: `ShadowTracker` class (~230 lines) in `live_trading_citrine.py`. Parallel allocator with relaxed thresholds (conf≥0.70, persist≥1d, max 30 positions) runs on same scan data as live engine. Logs to `shadow_trades` (24 columns) and `shadow_snapshots` tables. Uses config monkey-patching (temporarily overrides config globals, safe single-threaded). Independent `CitrineAllocator` instance with separate state. Shadow positions persist across restarts.
+  2. **TickerScan per-indicator breakdown**: Added `indicator_details: dict` to `TickerScan` in `src/citrine_scanner.py`. Extracts 8 boolean check columns (rsi, momentum, volatility, volume, adx, price_trend, macd, stochastic) from `build_signal_series()`. Enables analysis of which indicators block profitable entries.
+  3. **Shadow schema expansion**: 5 new columns — `confirmations_short`, `target_weight`, `scaled_weight`, `live_would_enter` (flag: conf≥0.90 AND persist≥3 AND BULL), `indicator_json` (serialized per-indicator booleans). Safe ALTER TABLE migration.
+  4. **Grinold's Law motivation**: IR ≈ IC × √Breadth — low trade frequency caps information ratio. Shadow at 0.70/1d captures ~27 entries vs ~7 live = 3.8x breadth multiplier. Data will determine whether relaxation maintains or dilutes IC.
+  5. **First results**: 50 shadow trades logged, 22 held vs 9 live (~2.4x breadth). 23 with full indicator JSON.
+  - **Chandelier calibration concern** (2026-04-02): 6 same-day Chandelier stops (entered morning, stopped afternoon: AMGN, STX, TXN, KDP, GEHC, CSGP). Suggests HMM labels late BULL or 2.0 ATR too tight for day-0 entries. Investigation pending.
 
 ### CITRINE Optimization & Portfolio Rotation
 - **Per-ticker HMM optimization**: COMPLETE + RE-OPTIMIZED (585 trials across 100 tickers, 82 positive Sharpe — 83%)
@@ -1074,7 +1082,7 @@ Dedicated BERYL daily-only optimizer — focused grid for ensemble HMM on daily 
 
 ### `src/citrine_scanner.py`
 Daily OHLCV scanner for 100 NDX100 tickers with per-ticker HMM regime detection.
-- `TickerScan` dataclass: ticker, regime_cat, confidence, persistence, realized_vol, confirmations, confirmations_short, current_price, sector, hmm_converged
+- `TickerScan` dataclass: ticker, regime_cat, confidence, persistence, realized_vol, confirmations, confirmations_short, current_price, sector, hmm_converged, regime_half_life, current_atr, scan_time, error, **indicator_details** (Sprint 11: dict of per-indicator booleans — `{"rsi": true, "momentum": false, ...}` — extracted from `build_signal_series()` check columns)
 - `CitrineScanner` class:
   - `scan_all()` — rate-limited scan (12s between Polygon calls) of all 100 NDX tickers
   - `scan_from_data()` — alternative entry point using pre-fetched data
@@ -1115,10 +1123,17 @@ Walk-forward portfolio backtester with daily rebalancing.
 
 ### `live_trading_citrine.py`
 Daily portfolio rotation engine for CITRINE (test/live mode).
+- `ShadowTracker` class (Sprint 11): parallel allocator with relaxed thresholds that logs theoretical trades alongside live engine. Zero impact on live trading.
+  - Thresholds: `SHADOW_ENTRY_CONFIDENCE=0.70`, `SHADOW_EXIT_CONFIDENCE=0.35`, `SHADOW_PERSISTENCE_DAYS=1`, `SHADOW_MAX_POSITIONS=30`
+  - `_init_shadow_table()` — creates `shadow_trades` (24 columns) and `shadow_snapshots` tables with safe ALTER TABLE migration for new columns
+  - `_restore_shadow_state()` — rebuilds shadow positions from latest `shadow_snapshots` row on restart
+  - `run_shadow_cycle(scans, alt_data_boosts)` — runs relaxed-threshold allocation against same scan data; temporarily monkey-patches config globals, then restores
+  - `_log_shadow_trade()` — logs to `shadow_trades` with full metadata: 24 fields including `indicator_json` (per-indicator boolean breakdown), `live_would_enter` (flag: conf≥0.90 AND persist≥3 AND BULL), `target_weight`, `scaled_weight`
+  - `_log_shadow_snapshot()` — writes position JSON + theoretical equity to `shadow_snapshots`
 - `CitrinePosition` dataclass: ticker, direction, entry_price, entry_date, size, sector, signal_strength, entry_atr, entry_confidence, highest_price, lowest_price, mae_pct, mfe_pct, mae_atr, mfe_atr. `chandelier_stop()` method returns stop price = `highest_price - entry_atr × 2.0`. Watermarks updated on every daily cycle via `update_watermarks(high, low)`.
 - `CitrineLiveEngine` class:
   - `run_forever()` — infinite loop: daily 4pm ET scan→allocate→rebalance (Mon-Fri only for equities)
-  - `_run_daily_cycle()` — orchestrator: scan, **risk exits**, allocate, rebalance, log, check kill-switch. Risk exits run BEFORE allocator so stopped-out positions free capital for new entries.
+  - `_run_daily_cycle()` — orchestrator: scan, **risk exits**, allocate, rebalance, **shadow cycle** (Step 4b), log, check kill-switch. Risk exits run BEFORE allocator so stopped-out positions free capital for new entries. Shadow cycle runs after allocator update with same scan data.
   - `_check_risk_exits()` — Sprint 9: iterates all held positions, checks (a) Chandelier stop: `current_price < position.chandelier_stop()`, (b) confidence velocity: `delta_conf < -0.25 AND close < prev_close`. Exits with categorized `exit_reason`.
   - `_execute_rebalance()` — compare current vs target positions, exit/enter/scale as needed
   - `_enter_position()` — market order entry with 10bps slippage (test) or live CDP (live); deduplication guard skips if ticker already held. Sprint 9: now records `entry_atr` and `entry_confidence` from scan data.
@@ -1497,6 +1512,9 @@ When CITRINE exited positions for tickers not in the latest scan (e.g., dropped 
 
 ### DIAMOND ML scorer in-sample fraud (FIXED 2026-03-25)
 `compare_with_handtuned()` used `predict()` on the same data the model was trained on — the +$6.26 ML P&L was entirely in-sample. Honest OOS numbers: 55.6% win rate on 36 trades, +27 cents. Fixed: comparison now uses only held-out CV fold predictions. Platt scaling disabled at N<500. Wilson CI added.
+
+### Chandelier stops may fire on same-day entries (2026-04-02 — UNDER INVESTIGATION)
+On 2026-04-02, 6 positions were stopped out intraday by Chandelier stops, several entered *that same morning* (AMGN, STX, TXN entered at 05:18 UTC, stopped at 14:40 UTC). Two possible causes: (1) HMM labels late BULL regimes — entering at the tail end when price is already declining, (2) 2.0 ATR multiplier is too tight for day-0 entries where the stop hasn't had time to establish a meaningful trailing level. Analysis needed: query `trades` table for `hold_days<=1 AND exit_reason='trailing_stop'` to quantify the pattern. Potential fix: skip Chandelier checks on day-0 entries (let the stop "season" for at least 1 day), or use a wider multiplier for the first day.
 
 ### macOS Full Disk Access blocks ALL launchd agents (2026-03-28)
 All launchd plists accessing `~/Documents/` fail with "Operation not permitted" — including the Sunday optimizer plists (`com.hmm-trader.optimize-*`) and auto-push plists (`com.quant.autopush-*`). Root cause: macOS `com.apple.provenance` attribute on `/bin/bash` prevents filesystem access from launchd context. **Fix**: System Settings → Privacy & Security → Full Disk Access → add `/bin/bash` (click `+`, `Cmd+Shift+G`, type `/bin/bash`). This is a one-time system setting change that fixes all current and future launchd agents. Also discovered the Sunday optimizer plists have been silently failing since the macOS update — they were NOT running.
