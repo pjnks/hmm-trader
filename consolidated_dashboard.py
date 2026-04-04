@@ -1253,8 +1253,15 @@ def _update_dashboard_inner(active_filter=None):
     combined_sharpe = _rolling_sharpe(all_pnls, window=20)
 
     citrine_equity = 0.0
+    citrine_realized = 0.0
+    citrine_unrealized = 0.0
     if not snapshots.empty and "total_equity" in snapshots.columns:
         citrine_equity = float(snapshots["total_equity"].iloc[-1])
+    citrine_total_pnl = citrine_equity - STARTING_CAPITAL.get("CITRINE", 25000.0)
+    citrine_df = all_trades.get("CITRINE", pd.DataFrame())
+    if not citrine_df.empty and "pnl" in citrine_df.columns:
+        citrine_realized = float(citrine_df["pnl"].sum())
+    citrine_unrealized = citrine_total_pnl - citrine_realized
 
     # Exclude EMERALD (research) from system health count
     live_metrics = {k: v for k, v in all_metrics.items() if k != "EMERALD"}
@@ -1274,13 +1281,19 @@ def _update_dashboard_inner(active_filter=None):
         html.Div(
             _metric_cell("COMBINED P&L", f"${total_pnl:+,.2f}",
                          GREEN if total_pnl >= 0 else RED, anim=1),
-            style={"gridColumn": "span 3"},
+            style={"gridColumn": "span 2"},
         ),
         html.Div(
-            _metric_cell("CITRINE EQUITY", f"${citrine_equity:,.0f}",
-                         GREEN if citrine_equity >= 25000 else RED,
-                         sub="from $25,000", anim=2),
-            style={"gridColumn": "span 3"},
+            _metric_cell("REALIZED P&L", f"${citrine_realized:+,.0f}",
+                         GREEN if citrine_realized >= 0 else RED,
+                         sub="closed trades", anim=2),
+            style={"gridColumn": "span 2"},
+        ),
+        html.Div(
+            _metric_cell("UNREALIZED P&L", f"${citrine_unrealized:+,.0f}",
+                         GREEN if citrine_unrealized >= 0 else RED,
+                         sub="open positions", anim=2),
+            style={"gridColumn": "span 2"},
         ),
         html.Div(
             _metric_cell("TOTAL TRADES", str(total_trades), TEXT,

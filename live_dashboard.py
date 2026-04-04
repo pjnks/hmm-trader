@@ -916,6 +916,11 @@ def _trades_table(df: pd.DataFrame) -> html.Div:
     display_df["size"]        = display_df["size"].apply(lambda v: f"{v:.4f}")
     display_df["pnl"]         = display_df["pnl"].apply(lambda v: f"${v:+,.2f}")
     display_df["pnl_pct"]     = display_df["pnl_pct"].apply(lambda v: f"{v:+.2f}%")
+    # signal_strength may contain binary blobs from SQLite — coerce to
+    # numeric string so Dash's JSON serialiser doesn't choke.
+    display_df["signal_strength"] = display_df["signal_strength"].apply(
+        lambda v: f"{float(v):.2f}" if isinstance(v, (int, float)) else str(v)
+    )
     display_df.columns = ["Time", "Side", "Entry", "Exit", "Size",
                            "P&L", "P&L %", "Signals"]
 
