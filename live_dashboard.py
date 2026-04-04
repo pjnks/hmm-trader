@@ -48,8 +48,12 @@ PURPLE   = "#e040fb"
 ORANGE   = "#ff6d00"
 
 DB_PATH       = ROOT / "paper_trades.db"
+BERYL_DB_PATH = ROOT / "beryl_trades.db"
 CITRINE_DB    = ROOT / "citrine_trades.db"
 CSV_PATH      = ROOT / "beryl_optimization_results.csv"
+
+AGATE_STARTING_CAPITAL = 10_000.0
+BERYL_STARTING_CAPITAL = 2_500.0
 
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
@@ -66,6 +70,53 @@ def _load_trades() -> pd.DataFrame:
         return df
     except Exception:
         return pd.DataFrame()
+
+
+def _load_beryl_trades() -> pd.DataFrame:
+    """Load closed trades from beryl_trades.db."""
+    if not BERYL_DB_PATH.exists():
+        return pd.DataFrame()
+    try:
+        with sqlite3.connect(str(BERYL_DB_PATH)) as conn:
+            return pd.read_sql_query(
+                "SELECT * FROM trades ORDER BY timestamp DESC", conn,
+            )
+    except Exception:
+        return pd.DataFrame()
+
+
+def _load_agate_open_positions() -> pd.DataFrame:
+    """Load open positions from paper_trades.db open_positions table."""
+    if not DB_PATH.exists():
+        return pd.DataFrame()
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            return pd.read_sql_query(
+                "SELECT * FROM open_positions", conn,
+            )
+    except Exception:
+        return pd.DataFrame()
+
+
+def _compute_unrealized_pnl(positions: list[dict],
+                            price_map: dict[str, float]) -> float:
+    """Compute total unrealized P&L given positions and current prices.
+
+    Each position dict must have: ticker, entry_price, size, side.
+    price_map maps ticker -> current_price.
+    """
+    total = 0.0
+    for pos in positions:
+        ticker = pos.get("ticker", "")
+        entry = pos.get("entry_price", 0.0)
+        size = pos.get("size", 0.0)
+        side = pos.get("side", "BUY")
+        current = price_map.get(ticker, entry)  # fallback to entry if missing
+        if side == "BUY":
+            total += (current - entry) * size
+        else:
+            total += (entry - current) * size
+    return total
 
 
 def _load_beryl() -> pd.DataFrame:
@@ -1225,6 +1276,7 @@ def update_dashboard(_n):
 
     trades_df = _load_trades()
     beryl_df = _load_beryl()
+    beryl_trades_df = _load_beryl_trades()
     agate_status = _load_status("agate_status.json")
     beryl_status = _load_status("beryl_status.json")
 
@@ -1236,6 +1288,52 @@ def update_dashboard(_n):
     today_count = _trades_today(trades_df)
     sharpe_20 = _rolling_sharpe(trades_df, window=20)
     ks = _kill_switch_status(trades_df)
+
+    # ── AGATE realized + unrealized P&L ──────────────────────────────────
+    agate_realized = 0.0
+    if not trades_df.empty and "pnl" in trades_df.columns:
+        agate_realized = float(trades_df["pnl"].dropna().sum())
+
+    # Build price map from AGATE scan_summary
+    agate_price_map = {}
+    for s in agate_status.get("scan_summary", []):
+        agate_price_map[s.get("ticker", "")] = s.get("current_price", 0.0)
+
+    # Build open position list from open_positions DB table
+    agate_open_df = _load_agate_open_positions()
+    agate_positions = []
+    if not agate_open_df.empty:
+        for _, row in agate_open_df.iterrows():
+            agate_positions.append({
+                "ticker": row.get("ticker", ""),
+                "entry_price": row.get("entry_price", 0.0),
+                "size": row.get("size", 0.0),
+                "side": row.get("side", "BUY"),
+            })
+    agate_unrealized = _compute_unrealized_pnl(agate_positions, agate_price_map)
+
+    # ── BERYL realized + unrealized P&L ──────────────────────────────────
+    beryl_realized = 0.0
+    if not beryl_trades_df.empty and "pnl" in beryl_trades_df.columns:
+        beryl_realized = float(beryl_trades_df["pnl"].dropna().sum())
+
+    # Build price map from BERYL scan_summary
+    beryl_price_map = {}
+    for s in beryl_status.get("scan_summary", []):
+        beryl_price_map[s.get("ticker", "")] = s.get("current_price", 0.0)
+
+    # Build open position list from BERYL status JSON
+    beryl_positions = []
+    raw_pos = beryl_status.get("positions", {})
+    if isinstance(raw_pos, dict):
+        for ticker, pdata in raw_pos.items():
+            beryl_positions.append({
+                "ticker": ticker,
+                "entry_price": pdata.get("entry_price", 0.0),
+                "size": pdata.get("size", 0.0),
+                "side": pdata.get("side", "BUY"),
+            })
+    beryl_unrealized = _compute_unrealized_pnl(beryl_positions, beryl_price_map)
 
     # ── Header ────────────────────────────────────────────────────────────
     header = html.Div([
@@ -1262,18 +1360,27 @@ def update_dashboard(_n):
         "flexDirection": "column",
     })
 
-    # ── Top row: 4 metric cards ───────────────────────────────────────────
+    # ── Top row: 6 metric cards (realized + unrealized for both projects) ─
+    ar_color = GREEN if agate_realized >= 0 else RED
+    au_color = GREEN if agate_unrealized >= 0 else RED
+    br_color = GREEN if beryl_realized >= 0 else RED
+    bu_color = GREEN if beryl_unrealized >= 0 else RED
     sharpe_color = GREEN if sharpe_20 >= 0.5 else (YELLOW if sharpe_20 > 0 else RED)
-    agate_color = GREEN if agate_sc >= 55 else (YELLOW if agate_sc >= 25 else TEXT_DIM)
-    beryl_color = GREEN if beryl_sc >= 55 else (YELLOW if beryl_sc >= 25 else TEXT_DIM)
 
     top_row = dbc.Row([
-        dbc.Col(_metric_card("AGATE Maturity", f"{agate_sc}%", agate_color), md=3, sm=6, xs=12),
-        dbc.Col(_metric_card("BERYL Maturity", f"{beryl_sc}%", beryl_color), md=3, sm=6, xs=12),
-        dbc.Col(_metric_card("AGATE Trades Today", str(today_count), BLUE), md=3, sm=6, xs=12),
-        dbc.Col(_metric_card("AGATE Rolling Sharpe (20)",
+        dbc.Col(_metric_card("AGATE Realized", f"${agate_realized:+,.0f}", ar_color),
+                md=2, sm=4, xs=6),
+        dbc.Col(_metric_card("AGATE Unrealized", f"${agate_unrealized:+,.0f}", au_color),
+                md=2, sm=4, xs=6),
+        dbc.Col(_metric_card("BERYL Realized", f"${beryl_realized:+,.0f}", br_color),
+                md=2, sm=4, xs=6),
+        dbc.Col(_metric_card("BERYL Unrealized", f"${beryl_unrealized:+,.0f}", bu_color),
+                md=2, sm=4, xs=6),
+        dbc.Col(_metric_card("Trades Today", str(today_count), BLUE),
+                md=2, sm=4, xs=6),
+        dbc.Col(_metric_card("Sharpe (20)",
                              f"{sharpe_20:.3f}" if len(trades_df) >= 20 else "N/A",
-                             sharpe_color), md=3, sm=6, xs=12),
+                             sharpe_color), md=2, sm=4, xs=6),
     ], className="g-2", style={"marginBottom": "16px"})
 
     # ── Regime status row: AGATE + BERYL regime panels ──────────────────
