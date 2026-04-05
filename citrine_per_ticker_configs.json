@@ -58,9 +58,9 @@
   "MNST": {
     "n_states": 6,
     "feature_set": "extended",
-    "cov_type": "diag",
+    "cov_type": "full",
     "confirmations": 6,
-    "wf_sharpe": -0.1695
+    "wf_sharpe": 0.0136
   },
   "MAR": {
     "n_states": 4,
@@ -196,11 +196,11 @@
     "wf_sharpe": 0.7796
   },
   "CEG": {
-    "n_states": 4,
+    "n_states": 5,
     "feature_set": "base",
-    "cov_type": "diag",
-    "confirmations": 6,
-    "wf_sharpe": 1.1217
+    "cov_type": "full",
+    "confirmations": 7,
+    "wf_sharpe": 2.349
   },
   "TMUS": {
     "n_states": 6,
@@ -302,10 +302,10 @@
   },
   "AMZN": {
     "n_states": 6,
-    "feature_set": "base",
+    "feature_set": "extended_v2",
     "cov_type": "diag",
-    "confirmations": 7,
-    "wf_sharpe": 0.3056
+    "confirmations": 6,
+    "wf_sharpe": 2.2258
   },
   "PLTR": {
     "n_states": 4,
@@ -323,10 +323,10 @@
   },
   "PCAR": {
     "n_states": 4,
-    "feature_set": "base",
-    "cov_type": "full",
+    "feature_set": "extended_v2",
+    "cov_type": "diag",
     "confirmations": 6,
-    "wf_sharpe": 0.7126
+    "wf_sharpe": 0.9656
   },
   "PAYX": {
     "n_states": 6,
@@ -358,10 +358,10 @@
   },
   "LRCX": {
     "n_states": 6,
-    "feature_set": "extended",
-    "cov_type": "diag",
+    "feature_set": "base",
+    "cov_type": "full",
     "confirmations": 7,
-    "wf_sharpe": 0.3089
+    "wf_sharpe": 0.402
   },
   "FTNT": {
     "n_states": 4,
@@ -436,9 +436,9 @@
   "DXCM": {
     "n_states": 4,
     "feature_set": "extended",
-    "cov_type": "full",
+    "cov_type": "diag",
     "confirmations": 6,
-    "wf_sharpe": -0.3037
+    "wf_sharpe": 0.983
   },
   "ADP": {
     "n_states": 6,
@@ -462,11 +462,11 @@
     "wf_sharpe": 0.2695
   },
   "TRI": {
-    "n_states": 5,
+    "n_states": 6,
     "feature_set": "base",
     "cov_type": "diag",
-    "confirmations": 7,
-    "wf_sharpe": -0.2745
+    "confirmations": 6,
+    "wf_sharpe": 3.084
   },
   "INTU": {
     "n_states": 4,
