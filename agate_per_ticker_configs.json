@@ -154,5 +154,29 @@
     "total_trades": 120,
     "positive_windows": 3,
     "n_windows": 5
+  },
+  "X:SHIBUSD": {
+    "n_states": 6,
+    "feature_set": "extended_v2",
+    "confirmations": 6,
+    "cov_type": "diag",
+    "timeframe": "4h",
+    "wf_sharpe": 1.3034,
+    "wf_return": 4.24,
+    "total_trades": 47,
+    "positive_windows": 4,
+    "n_windows": 5
+  },
+  "X:DOTUSD": {
+    "n_states": 4,
+    "feature_set": "base",
+    "confirmations": 8,
+    "cov_type": "diag",
+    "timeframe": "4h",
+    "wf_sharpe": 1.6334,
+    "wf_return": 2.81,
+    "total_trades": 9,
+    "positive_windows": 3,
+    "n_windows": 5
   }
 }
