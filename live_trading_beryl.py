@@ -365,9 +365,15 @@ class BerylLiveEngine:
                 }
             positions_json = json.dumps(pos_data)
 
-        # Compute equity: invested notional (mark-to-market) + remaining cash
-        total_invested = sum(pos.notional for pos in self.positions.values())
-        total_equity = INITIAL_EQUITY  # BERYL test mode — flat $2,500
+        # Compute equity: mark-to-market invested + residual cash (Sprint 13)
+        # Use scan_prices for M2M; fall back to entry price if ticker wasn't scanned
+        scan_prices_map = {s["ticker"]: s.get("current_price", 0.0) for s in signals}
+        total_invested = sum(
+            pos.size * scan_prices_map.get(ticker, pos.entry_price)
+            for ticker, pos in self.positions.items()
+        )
+        cash_balance = INITIAL_EQUITY - sum(pos.notional for pos in self.positions.values())
+        total_equity = cash_balance + total_invested
 
         now = datetime.now(tz=timezone.utc).isoformat()
         try:

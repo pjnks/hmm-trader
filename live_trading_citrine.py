@@ -1436,22 +1436,59 @@ class CitrineLiveEngine:
                 # Still between daily cycles — run intraday risk check + snapshot
                 self._check_intraday_risk()
 
-    # ── Trailing stop-loss threshold ─────────────────────────────────────
-    TRAILING_STOP_PCT = -0.02  # -2% per-position trailing stop
+    # ── ATR-Normalized Intraday Catastrophe Stop (Sprint 13) ─────────────
+    # Replaces the static -2% stop that was causing 90% same-day exits.
+    # The old stop (0.48x ATR) sat inside the daily noise floor, guaranteeing
+    # that normal intraday variance would trigger exits before the HMM's
+    # multi-day regime signal could resolve (+5.18% avg at T+8).
+    #
+    # New architecture (two-layer):
+    #   Layer 1 (daily):    Chandelier trailing from high watermark at 2.0x ATR
+    #                       → primary exit, runs in _check_risk_exits()
+    #   Layer 2 (intraday): Catastrophe stop at 1.5x ATR from entry price
+    #                       → emergency-only backstop, runs here
+    #                       → floor -3%, cap -5% (asset-appropriate bounds)
+    #
+    # A stock with 4.2% ATR: 4.2% × 1.5 = 6.3% → capped at -5%
+    # A stock with 2.0% ATR: 2.0% × 1.5 = 3.0% → uses -3% (floor)
+    # A stock with 7.0% ATR: 7.0% × 1.5 = 10.5% → capped at -5%
+    ATR_CATASTROPHE_MULT = 1.5   # Multiplier for intraday catastrophe stop
+    CATASTROPHE_FLOOR_PCT = -0.03  # Never tighter than -3% (protects low-vol)
+    CATASTROPHE_CAP_PCT = -0.05    # Never wider than -5% (absolute ruin guard)
+
+    def _compute_dynamic_stop(self, pos) -> float:
+        """Compute ATR-normalized catastrophe stop for a position.
+
+        Returns a negative percentage threshold (e.g., -0.042 for -4.2%).
+        Uses frozen entry_atr (not rolling ATR) to prevent stop contraction
+        during volatility expansion events.
+        """
+        if pos.entry_atr > 0 and pos.entry_price > 0:
+            # How many % of entry price does 1.5x ATR represent?
+            dynamic_pct = -(pos.entry_atr * self.ATR_CATASTROPHE_MULT) / pos.entry_price
+            # Clamp between floor and cap
+            return max(min(dynamic_pct, self.CATASTROPHE_FLOOR_PCT),
+                       self.CATASTROPHE_CAP_PCT)
+        else:
+            # Fallback if ATR data missing — use floor (conservative)
+            return self.CATASTROPHE_FLOOR_PCT
 
     def _check_intraday_risk(self) -> None:
         """
         Intra-day risk check — called every hour (market hours) or 4 hours (off hours).
         Fetches latest prices for held tickers and checks unrealized P&L.
 
-        Only the hard -2% per-position stop runs here (catastrophic safety net).
-        Chandelier stops are intentionally excluded — they operate on daily-bar
-        observation frequency and are evaluated only in _check_risk_exits() during
-        the main daily cycle.  Running Chandelier intraday caused 6 same-day
-        stop-outs on 2026-04-02 (execution-observation misalignment).
+        Sprint 13 rewrite: ATR-normalized catastrophe stop replaces the static -2%
+        that was killing 90% of trades on Day 0. The old stop sat at 0.48x ATR —
+        inside the daily noise floor. New stop at 1.5x ATR from entry price is
+        placed outside normal daily variance while still protecting against genuine
+        catastrophic moves (earnings gaps, flash crashes).
 
-        Per-position trailing stop:
-          - Any position unrealized loss > 2% → force-exit immediately
+        Chandelier stops remain in the daily cycle only (_check_risk_exits).
+
+        Per-position dynamic stop:
+          - Unrealized loss exceeds 1.5x entry_atr → force-exit (catastrophe)
+          - Floor: -3% (low-vol stocks); Cap: -5% (high-vol stocks)
         Warnings:
           - Portfolio unrealized loss > 3%
         Kill-switch trigger:
@@ -1472,7 +1509,17 @@ class CitrineLiveEngine:
             from src.data_fetcher import fetch_latest_price
             current_price = fetch_latest_price(ticker)
             if current_price is None or current_price <= 0:
-                current_price = pos.entry_price  # fallback
+                # SPRINT 13: Hard failure on price fetch — do NOT fall back to
+                # entry_price, which blinds the risk engine (unrealized = $0).
+                log.error(f"  [DATA FAILURE] Cannot fetch price for {ticker} "
+                          f"— skipping risk check (position unprotected)")
+                _pushover_notify(
+                    "CITRINE Data Failure",
+                    f"fetch_latest_price({ticker}) returned None — "
+                    f"position unprotected until next successful fetch",
+                    priority=1,
+                )
+                continue
             intraday_prices[ticker] = current_price
 
             # Update excursion watermarks (Sprint 9)
@@ -1489,34 +1536,40 @@ class CitrineLiveEngine:
 
             # Chandelier stops are evaluated ONLY in the daily cycle
             # (_check_risk_exits) to align with daily-bar observation frequency.
-            # Intraday checks use only the hard -2% stop as a catastrophic safety net.
+            # Intraday checks use the ATR-normalized catastrophe stop.
 
-            # Pct trailing stop (applies to all positions)
-            if unrealized_pct < self.TRAILING_STOP_PCT:
-                msg = (f"  [STOP-LOSS] {ticker} hit {unrealized_pct:.1%} "
-                       f"(${unrealized:.2f}) — breached {self.TRAILING_STOP_PCT:.0%} stop")
+            # ATR-normalized catastrophe stop (Sprint 13)
+            active_stop_pct = self._compute_dynamic_stop(pos)
+
+            if unrealized_pct < active_stop_pct:
+                msg = (f"  [CATASTROPHE STOP] {ticker} hit {unrealized_pct:.1%} "
+                       f"(${unrealized:.2f}) — breached dynamic "
+                       f"{active_stop_pct:.1%} stop "
+                       f"(ATR={pos.entry_atr:.2f}, "
+                       f"ATR%={pos.entry_atr/pos.entry_price*100:.1f}%)")
                 log.warning(msg)
                 warnings.append(msg)
                 stop_loss_exits.append((ticker, current_price))
-            elif unrealized_pct < -0.01:
-                # Warn at -1% (early warning before stop triggers)
+            elif unrealized_pct < (active_stop_pct * 0.6):
+                # Warn at 60% of stop distance (early warning)
                 msg = (f"  [Intraday] WATCH: {ticker} unrealized {unrealized_pct:.1%} "
-                       f"(${unrealized:.2f})")
+                       f"(${unrealized:.2f}), stop at {active_stop_pct:.1%}")
                 log.info(msg)
 
-        # Execute trailing stop-loss exits
+        # Execute catastrophe stop exits
         if stop_loss_exits:
-            log.warning(f"  [STOP-LOSS] Exiting {len(stop_loss_exits)} positions: "
+            log.warning(f"  [CATASTROPHE STOP] Exiting {len(stop_loss_exits)} positions: "
                         f"{[t for t, _ in stop_loss_exits]}")
             for ticker, price in stop_loss_exits:
                 try:
-                    self._force_exit_single(ticker, price, reason="trailing_stop")
+                    self._force_exit_single(ticker, price, reason="catastrophe_stop")
                 except Exception as e:
-                    log.error(f"  [STOP-LOSS] Failed to exit {ticker}: {e}")
+                    log.error(f"  [CATASTROPHE STOP] Failed to exit {ticker}: {e}")
 
             _pushover_notify(
-                "CITRINE Stop-Loss",
-                f"Exited {len(stop_loss_exits)} positions: "
+                "CITRINE Catastrophe Stop",
+                f"Exited {len(stop_loss_exits)} positions "
+                f"(ATR-normalized): "
                 + ", ".join(f"{t} @ ${p:.2f}" for t, p in stop_loss_exits),
                 priority=0,
             )
@@ -1525,9 +1578,12 @@ class CitrineLiveEngine:
         if self.positions:
             total_unrealized = 0.0
             for ticker, pos in self.positions.items():
-                current_price = fetch_latest_price(ticker)
+                current_price = intraday_prices.get(ticker)
+                if current_price is None:
+                    # Use cached price from earlier fetch; skip if unavailable
+                    current_price = fetch_latest_price(ticker)
                 if current_price is None or current_price <= 0:
-                    current_price = pos.entry_price
+                    continue  # Skip — don't use entry_price as it blinds risk engine
                 if pos.direction == "LONG":
                     total_unrealized += pos.shares * (current_price - pos.entry_price)
                 else:
