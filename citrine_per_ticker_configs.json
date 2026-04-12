@@ -14,11 +14,11 @@
     "wf_sharpe": -0.3642
   },
   "AEP": {
-    "n_states": 5,
-    "feature_set": "base",
+    "n_states": 4,
+    "feature_set": "extended",
     "cov_type": "diag",
-    "confirmations": 7,
-    "wf_sharpe": 0.3022
+    "confirmations": 6,
+    "wf_sharpe": 0.3756
   },
   "DDOG": {
     "n_states": 4,
@@ -107,9 +107,9 @@
   "NVDA": {
     "n_states": 4,
     "feature_set": "base",
-    "cov_type": "full",
-    "confirmations": 6,
-    "wf_sharpe": 0.6246
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.9544
   },
   "EXC": {
     "n_states": 6,
@@ -399,11 +399,11 @@
     "wf_sharpe": 0.0158
   },
   "ABNB": {
-    "n_states": 5,
-    "feature_set": "extended",
-    "cov_type": "diag",
+    "n_states": 6,
+    "feature_set": "base",
+    "cov_type": "full",
     "confirmations": 6,
-    "wf_sharpe": 0.1525
+    "wf_sharpe": 0.521
   },
   "WDAY": {
     "n_states": 5,
@@ -413,11 +413,11 @@
     "wf_sharpe": 0.1886
   },
   "WMT": {
-    "n_states": 4,
+    "n_states": 5,
     "feature_set": "extended_v2",
     "cov_type": "diag",
     "confirmations": 6,
-    "wf_sharpe": 1.5874
+    "wf_sharpe": 1.6884
   },
   "FAST": {
     "n_states": 6,
@@ -441,11 +441,11 @@
     "wf_sharpe": 0.983
   },
   "ADP": {
-    "n_states": 6,
-    "feature_set": "extended_v2",
-    "cov_type": "full",
+    "n_states": 4,
+    "feature_set": "extended",
+    "cov_type": "diag",
     "confirmations": 6,
-    "wf_sharpe": -0.1152
+    "wf_sharpe": -0.0678
   },
   "NXPI": {
     "n_states": 5,
@@ -518,11 +518,11 @@
     "wf_sharpe": -0.3669
   },
   "AVGO": {
-    "n_states": 6,
-    "feature_set": "extended",
+    "n_states": 4,
+    "feature_set": "base",
     "cov_type": "diag",
     "confirmations": 6,
-    "wf_sharpe": 0.0995
+    "wf_sharpe": 0.5233
   },
   "VRSK": {
     "n_states": 4,
@@ -672,11 +672,11 @@
     "wf_sharpe": 0.1079
   },
   "ISRG": {
-    "n_states": 4,
+    "n_states": 6,
     "feature_set": "extended",
-    "cov_type": "full",
+    "cov_type": "diag",
     "confirmations": 6,
-    "wf_sharpe": 0.2322
+    "wf_sharpe": 0.4173
   },
   "EA": {
     "n_states": 6,

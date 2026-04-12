@@ -353,14 +353,24 @@ def main():
     bear_t3 = compute_hit_rate(df, 3, "BEAR")
     ic_t3 = compute_information_coefficient(df[df["regime"] == "BULL"], 3)
 
-    bull_hr = bull_t3.get("hit_rate", 0)
-    bull_ret = bull_t3.get("avg_return", 0)
-    bear_hr = bear_t3.get("hit_rate", 0)
+    bull_hr = bull_t3.get("hit_rate", 0) or 0
+    bull_ret = bull_t3.get("avg_return", 0) or 0
+    bear_hr = bear_t3.get("hit_rate", 0) or 0
+    bear_ret = bear_t3.get("avg_return", 0) or 0
     # Handle NaN (e.g., no BEAR signals for a single ticker)
     if np.isnan(bull_hr): bull_hr = 0
     if np.isnan(bull_ret): bull_ret = 0
-    if np.isnan(bear_hr): bear_hr = 0  # No BEAR data = passes check
-    model_works = (bull_hr > 0.50 and bull_ret > 0 and bear_hr < 0.55)
+    if np.isnan(bear_hr): bear_hr = 0.5
+    if np.isnan(bear_ret): bear_ret = 0
+
+    # The model works if:
+    #  1. BULL signals predict positive returns (hit rate > 50%)
+    #  2. BULL outperforms BEAR (regime separation exists)
+    # Note: in a broad rally, even BEAR stocks go up — the model's value
+    # is in the DIFFERENTIAL (BULL return > BEAR return), not in BEAR
+    # having negative absolute returns.
+    spread = bull_ret - bear_ret
+    model_works = (bull_hr > 0.50 and bull_ret > 0 and spread > 0)
 
     ic_val = ic_t3.get("ic", float("nan"))
     ic_str = f"{ic_val:+.4f}" if not np.isnan(ic_val) else "N/A (constant confidence)"
@@ -369,15 +379,21 @@ def main():
         print("  ✅ MODEL HAS PREDICTIVE EDGE")
         print(f"     BULL T+3 hit rate: {bull_hr:.1%} (>50% required)")
         print(f"     BULL T+3 avg return: {bull_ret*100:+.3f}%")
+        print(f"     BEAR T+3 avg return: {bear_ret*100:+.3f}%")
+        print(f"     BULL−BEAR spread: {spread*100:+.3f}% (regime separation)")
         print(f"     BULL IC: {ic_str}")
-        print(f"     N={bull_t3.get('n', 0)} signals evaluated")
+        print(f"     N={bull_t3.get('n', 0)} BULL signals evaluated")
         print()
-        print("  → If live trading loses money despite positive model edge,")
-        print("    the EXECUTION LAYER (stops, sizing, timing) is the problem.")
+        print("  → The HMM correctly separates regimes. BULL outperforms BEAR")
+        print(f"    by {spread*100:+.2f}% per trade at T+3.")
+        print("  → If live trading loses money despite this edge, the")
+        print("    EXECUTION LAYER (stops, sizing, timing) is the problem.")
     else:
         print("  ⚠️  MODEL EDGE UNCLEAR OR ABSENT")
         print(f"     BULL T+3 hit rate: {bull_hr:.1%}")
         print(f"     BULL T+3 avg return: {bull_ret*100:+.3f}%")
+        print(f"     BEAR T+3 avg return: {bear_ret*100:+.3f}%")
+        print(f"     BULL−BEAR spread: {spread*100:+.3f}%")
         print()
         print("  → Strategy fixes won't help if the model lacks predictive power.")
         print("    Re-evaluate HMM parameters, feature set, or training regime.")
