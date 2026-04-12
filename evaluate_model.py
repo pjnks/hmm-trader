@@ -57,11 +57,16 @@ def fetch_forward_prices(ticker: str, start_date: str, days_forward: int = 10) -
     if df is None or df.empty:
         return pd.DataFrame()
     # Ensure date index
+    # Normalize column names to lowercase
+    df.columns = [c.lower() for c in df.columns]
     if "date" in df.columns:
         df["date"] = pd.to_datetime(df["date"])
         df = df.set_index("date")
     elif not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index)
+    # Strip timezone for clean date comparisons
+    if df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
     return df[["close"]].sort_index()
 
 
@@ -121,11 +126,11 @@ def compute_forward_returns(scans: pd.DataFrame, horizons: list[int],
         mask = prices.index >= scan_date
         if mask.sum() == 0:
             continue
-        entry_idx = prices.index[mask][0]
-        entry_price = prices.loc[entry_idx, "close"]
+        # Use integer position to avoid slice issues with duplicate dates
+        entry_pos = np.where(mask)[0][0]
+        entry_price = prices.iloc[entry_pos]["close"]
 
         # Compute forward returns at each horizon
-        entry_pos = prices.index.get_loc(entry_idx)
         forward_returns = {}
         for h in horizons:
             fwd_pos = entry_pos + h
@@ -348,22 +353,31 @@ def main():
     bear_t3 = compute_hit_rate(df, 3, "BEAR")
     ic_t3 = compute_information_coefficient(df[df["regime"] == "BULL"], 3)
 
-    model_works = (bull_t3.get("hit_rate", 0) > 0.50 and
-                   bull_t3.get("avg_return", 0) > 0 and
-                   bear_t3.get("hit_rate", 0) < 0.55)
+    bull_hr = bull_t3.get("hit_rate", 0)
+    bull_ret = bull_t3.get("avg_return", 0)
+    bear_hr = bear_t3.get("hit_rate", 0)
+    # Handle NaN (e.g., no BEAR signals for a single ticker)
+    if np.isnan(bull_hr): bull_hr = 0
+    if np.isnan(bull_ret): bull_ret = 0
+    if np.isnan(bear_hr): bear_hr = 0  # No BEAR data = passes check
+    model_works = (bull_hr > 0.50 and bull_ret > 0 and bear_hr < 0.55)
+
+    ic_val = ic_t3.get("ic", float("nan"))
+    ic_str = f"{ic_val:+.4f}" if not np.isnan(ic_val) else "N/A (constant confidence)"
 
     if model_works:
         print("  ✅ MODEL HAS PREDICTIVE EDGE")
-        print(f"     BULL T+3 hit rate: {bull_t3['hit_rate']:.1%} (>{50}% required)")
-        print(f"     BULL T+3 avg return: {bull_t3['avg_return']*100:+.3f}%")
-        print(f"     BULL IC: {ic_t3['ic']:+.4f}")
+        print(f"     BULL T+3 hit rate: {bull_hr:.1%} (>50% required)")
+        print(f"     BULL T+3 avg return: {bull_ret*100:+.3f}%")
+        print(f"     BULL IC: {ic_str}")
+        print(f"     N={bull_t3.get('n', 0)} signals evaluated")
         print()
         print("  → If live trading loses money despite positive model edge,")
         print("    the EXECUTION LAYER (stops, sizing, timing) is the problem.")
     else:
         print("  ⚠️  MODEL EDGE UNCLEAR OR ABSENT")
-        print(f"     BULL T+3 hit rate: {bull_t3.get('hit_rate', 0):.1%}")
-        print(f"     BULL T+3 avg return: {bull_t3.get('avg_return', 0)*100:+.3f}%")
+        print(f"     BULL T+3 hit rate: {bull_hr:.1%}")
+        print(f"     BULL T+3 avg return: {bull_ret*100:+.3f}%")
         print()
         print("  → Strategy fixes won't help if the model lacks predictive power.")
         print("    Re-evaluate HMM parameters, feature set, or training regime.")
