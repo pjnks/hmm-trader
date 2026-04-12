@@ -1,7 +1,7 @@
 [
   {
     "project": "AGATE",
-    "status": "ERROR: HTTPSConnectionPool(host='api.polygon.io', port=443): Max retries exceeded with url: /v2/aggs/ticker/X:SOLUSD/range/1/hour/1774825200001/1775385341167?adjusted=true&sort=asc&limit=5000&apiKey=Cpjlapf5mCDnyU5ODQOsEc8kmNO5xrZo (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x7faf12fb6670>: Failed to resolve 'api.polygon.io' ([Errno 8] nodename nor servname provided, or not known)\"))",
+    "status": "ERROR: HTTPSConnectionPool(host='api.polygon.io', port=443): Max retries exceeded with url: /v2/aggs/ticker/X:SOLUSD/range/1/hour/1774825200001/1776005861414?adjusted=true&sort=asc&limit=5000&apiKey=Cpjlapf5mCDnyU5ODQOsEc8kmNO5xrZo (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x7feef8bae670>: Failed to resolve 'api.polygon.io' ([Errno 8] nodename nor servname provided, or not known)\"))",
     "discrepancies": [],
     "live_signal": {
       "regime": "CHOP",
