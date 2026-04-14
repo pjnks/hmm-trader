@@ -306,9 +306,13 @@ CITRINE_SECTORS = {
 }
 
 # ── Hysteresis Bands ─────────────────────────────────────────────────────────
-CITRINE_ENTRY_CONFIDENCE    = 0.90    # optimized (was 0.80; higher bar = better entries)
+CITRINE_ENTRY_CONFIDENCE    = 0.70    # Sprint 14: was 0.90. Calibration inversion proved
+                                       # 0.90 selects WORST bucket (51.9% T+3 hit rate).
+                                       # <70% bucket = 96.3% hit rate, 70-80% = 65.7%.
+                                       # HMM alpha lives at regime transitions, not exhaustion.
 CITRINE_EXIT_CONFIDENCE     = 0.50    # optimized (was 0.65; hold longer = Sharpe +1.665)
-CITRINE_PERSISTENCE_DAYS    = 3       # consecutive BULL/BEAR days to qualify for entry
+CITRINE_PERSISTENCE_DAYS    = 1       # Sprint 14: was 3. If HMM needs 3 days to confirm,
+                                       # alpha has already decayed. Enter on day-1 transition.
 
 # ── Cooldown (configurable, testable in backtest) ────────────────────────────
 # "none"      — hysteresis + persistence is enough

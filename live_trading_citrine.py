@@ -149,11 +149,13 @@ class ShadowTracker:
       • Only writes to its own DB table
     """
 
-    # Relaxed thresholds (vs live: entry=0.90, exit=0.50, persistence=3)
-    SHADOW_ENTRY_CONFIDENCE = 0.70
-    SHADOW_EXIT_CONFIDENCE = 0.35
-    SHADOW_PERSISTENCE_DAYS = 1
-    SHADOW_MAX_POSITIONS = 30  # higher cap → more data points
+    # Sprint 14: Shadow now simulates the OLD conservative thresholds as
+    # control group.  Live engine moved to 0.70/1d (calibration-inversion fix).
+    # Shadow runs the old 0.90/3d to prove the new thresholds outperform.
+    SHADOW_ENTRY_CONFIDENCE = 0.90   # was 0.70; now mirrors old live config
+    SHADOW_EXIT_CONFIDENCE = 0.50    # was 0.35; now mirrors old live config
+    SHADOW_PERSISTENCE_DAYS = 3      # was 1; now mirrors old live config
+    SHADOW_MAX_POSITIONS = 15        # was 30; now mirrors old live config
 
     def __init__(self, db_path: Path, capital: float, long_only: bool = True):
         self.db_path = db_path
@@ -366,10 +368,11 @@ class ShadowTracker:
         elif action == "EXIT" and ticker in self._positions:
             notional = self._positions[ticker].get("notional", 0)
 
-        # Would the live engine have entered this trade?
+        # Sprint 14: roles swapped — shadow runs OLD thresholds (0.90/3d).
+        # This flag now indicates: "would the NEW live engine (0.70/1d) enter?"
         live_would_enter = int(
-            scan.confidence >= 0.90
-            and scan.persistence >= 3
+            scan.confidence >= 0.70
+            and scan.persistence >= 1
             and scan.regime_cat == "BULL"  # long-only mode
         )
 
