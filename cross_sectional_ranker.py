@@ -67,40 +67,75 @@ def add_persistence_and_velocity(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def compute_alpha_score(
+def compute_gaussian_alpha(
     current_conf: float,
     prev_conf: float,
     days_in_state: int,
     regime: str,
-    optimal_conf: float = 0.70,
+    optimal_conf: float = 0.65,
     decay_rate: float = 0.2,
     velocity_scale: float = 0.5,
     min_conf: float = 0.60,
 ) -> float:
-    """Composite alpha score per Sprint 15 framework."""
-    if regime != "BULL":
+    """Original Gaussian scoring (kept for A/B comparison)."""
+    if regime != "BULL" or pd.isna(current_conf) or current_conf < min_conf:
         return 0.0
-    if pd.isna(current_conf) or current_conf < min_conf:
-        return 0.0
-
-    # Banded confidence penalty — peak at optimal_conf, with explicit 90-95% penalty zone
     conf_penalty = abs(current_conf - optimal_conf)
     base_score = max(0.0, 1.0 - conf_penalty)
-    # Empirical graveyard zone: crush 90-95%
     if 0.90 <= current_conf < 0.95:
         base_score *= 0.3
-
-    # Sojourn decay
     time_multiplier = np.exp(-decay_rate * max(0, days_in_state - 1))
+    velocity = 0.0 if pd.isna(prev_conf) else max(0.0, current_conf - prev_conf)
+    velocity_boost = 1.0 + velocity * velocity_scale
+    return base_score * time_multiplier * velocity_boost
 
-    # Velocity boost (positive only)
-    if pd.isna(prev_conf):
-        velocity = 0.0
+
+def compute_bimodal_alpha(
+    current_conf: float,
+    prev_conf: float,
+    days_in_state: int,
+    regime: str,
+    decay_rate: float = 0.15,
+    velocity_scale: float = 0.5,
+) -> float:
+    """
+    Bimodal alpha score — piecewise reflecting the three-phase curve:
+      Phase 1 (<0.70): Information Advantage — HMM catches inflection early.
+      Phase 2 (0.90-0.95): Valley of Death — exhaustion / exit liquidity.
+      Phase 3 (>=0.95): Structural Drift — deep confirmed trend.
+    """
+    if regime != "BULL" or pd.isna(current_conf):
+        return 0.0
+
+    if current_conf < 0.60:
+        return 0.0  # Weed out CHOP / unclear signals
+    elif current_conf < 0.70:
+        base_score = 1.0      # Information Advantage
+    elif current_conf < 0.90:
+        base_score = 0.5      # Middle ground — mild reward
+    elif current_conf < 0.95:
+        base_score = 0.1      # Valley of Death
     else:
-        velocity = max(0.0, current_conf - prev_conf)
+        base_score = 0.8      # Structural Drift
+
+    # Exponential sojourn decay
+    decay = np.exp(-decay_rate * max(0, days_in_state - 1))
+
+    # Velocity boost (positive delta only)
+    velocity = 0.0 if pd.isna(prev_conf) else max(0.0, current_conf - prev_conf)
     velocity_boost = 1.0 + velocity * velocity_scale
 
-    return base_score * time_multiplier * velocity_boost
+    return base_score * decay * velocity_boost
+
+
+def compute_alpha_score(*args, scoring: str = "bimodal", **kwargs) -> float:
+    """Dispatcher — select scoring function by name."""
+    if scoring == "bimodal":
+        # Drop gaussian-only kwargs
+        kwargs.pop("optimal_conf", None)
+        kwargs.pop("min_conf", None)
+        return compute_bimodal_alpha(*args, **kwargs)
+    return compute_gaussian_alpha(*args, **kwargs)
 
 
 def attach_forward_returns(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
@@ -179,11 +214,34 @@ def run_cross_sectional_ic(df: pd.DataFrame, horizon: int) -> tuple[pd.Series, f
     return ics, mean_ic, t_stat
 
 
-def run_decile_analysis(df: pd.DataFrame, horizon: int, n_deciles: int = 10) -> pd.DataFrame:
-    """Pool all (date, ticker) — bucket by score, report mean forward return per decile."""
+def add_relative_returns(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
+    """
+    Market-neutralize forward returns: for each scan_date, subtract the universe
+    mean forward return from every row. Isolates alpha from market beta.
+
+    Baseline = mean of ALL tickers scanned that day (including non-scored rows).
+    This prevents the BULL-only universe from double-dipping — we want absolute
+    alpha vs the full opportunity set, not just vs other BULL signals.
+    """
     ret_col = f"fwd_ret_T{horizon}"
+    rel_col = f"rel_ret_T{horizon}"
+    df = df.copy()
+    daily_mean = df.groupby("scan_date")[ret_col].transform("mean")
+    df[rel_col] = df[ret_col] - daily_mean
+    return df
+
+
+def run_decile_analysis(
+    df: pd.DataFrame,
+    horizon: int,
+    n_deciles: int = 10,
+    use_relative: bool = True,
+) -> pd.DataFrame:
+    """Pool all (date, ticker) — bucket by score, report return per decile."""
+    raw_col = f"fwd_ret_T{horizon}"
+    rel_col = f"rel_ret_T{horizon}"
+    ret_col = rel_col if use_relative else raw_col
     sub = df.dropna(subset=["alpha_score", ret_col]).copy()
-    # Only rank rows with nonzero score (the candidate set)
     scored = sub[sub["alpha_score"] > 0].copy()
     if len(scored) < n_deciles * 3:
         print(f"  ⚠ Only {len(scored)} scored rows — not enough for {n_deciles}-decile analysis")
@@ -210,14 +268,34 @@ def main():
     ap.add_argument("--decay", type=float, default=0.2)
     ap.add_argument("--velocity-scale", type=float, default=0.5)
     ap.add_argument("--min-conf", type=float, default=0.60)
+    ap.add_argument("--scoring", choices=["bimodal", "gaussian"], default="bimodal",
+                    help="bimodal: piecewise (phase 1/2/3); gaussian: continuous peak at optimal_conf")
+    ap.add_argument("--db", default="/home/ubuntu/HMM-Trader/beryl_trades.db",
+                    help="SQLite DB path (override for backfill DB)")
+    ap.add_argument("--table", default="scan_journal",
+                    help="Table name (override for scan_journal_backfill)")
     args = ap.parse_args()
 
     print("=" * 72)
     print("  CROSS-SECTIONAL ALPHA RANKER — IC + Decile Validation")
-    print(f"  Horizon T+{args.horizon} | optimal_conf={args.optimal_conf} | decay={args.decay}")
+    print(f"  Scoring: {args.scoring} | Horizon T+{args.horizon} | decay={args.decay}")
+    print(f"  DB: {args.db} | Table: {args.table}")
     print("=" * 72)
 
-    scans = load_scans()
+    global DB_PATH
+    DB_PATH = Path(args.db)
+    # Patch load_scans to use custom table if needed
+    if args.table != "scan_journal":
+        con = sqlite3.connect(str(DB_PATH))
+        scans = pd.read_sql(
+            f"SELECT scan_date, ticker, regime, confidence, confirmations, "
+            f"signal, close_price FROM {args.table} ORDER BY ticker, scan_date",
+            con,
+        )
+        con.close()
+        scans["scan_date"] = pd.to_datetime(scans["scan_date"])
+    else:
+        scans = load_scans()
     print(f"\nLoaded {len(scans)} scans, {scans['ticker'].nunique()} tickers, "
           f"{scans['scan_date'].nunique()} dates")
 
@@ -225,6 +303,7 @@ def main():
     scans["alpha_score"] = scans.apply(
         lambda r: compute_alpha_score(
             r["confidence"], r["prev_conf"], r["persistence"], r["regime"],
+            scoring=args.scoring,
             optimal_conf=args.optimal_conf, decay_rate=args.decay,
             velocity_scale=args.velocity_scale, min_conf=args.min_conf,
         ),
@@ -235,6 +314,7 @@ def main():
 
     print("\n── Computing forward returns ──")
     scans = attach_forward_returns(scans, args.horizon)
+    scans = add_relative_returns(scans, args.horizon)
 
     print("\n── Cross-Sectional IC (per-day Spearman) ──")
     ics, mean_ic, t_stat = run_cross_sectional_ic(scans, args.horizon)
@@ -243,32 +323,36 @@ def main():
         print(f"  Mean daily IC:  {mean_ic:+.4f}")
         print(f"  Std daily IC:   {ics.std(ddof=1):.4f}")
         print(f"  t-stat:         {t_stat:+.2f}")
-        print(f"  IC by day:")
-        for d, v in ics.items():
-            print(f"    {d.date()}  {v:+.4f}")
 
-    print("\n── Decile Analysis (pooled) ──")
-    dec = run_decile_analysis(scans, args.horizon)
-    if not dec.empty:
-        print(dec.to_string(index=False))
-        top = dec.iloc[-1]  # highest decile
-        bot = dec.iloc[0]
-        spread = top["mean_ret"] - bot["mean_ret"]
-        print(f"\n  Top decile - Bottom decile mean T+{args.horizon} return: {spread:+.2%}")
-        monotone_up = all(dec["mean_ret"].diff().dropna() >= -0.001)
-        print(f"  Monotonically increasing (±10bps tol): {monotone_up}")
+    print("\n── Decile Analysis (RAW returns, beta-contaminated) ──")
+    dec_raw = run_decile_analysis(scans, args.horizon, use_relative=False)
+    if not dec_raw.empty:
+        print(dec_raw.to_string(index=False))
+        raw_spread = dec_raw.iloc[-1]["mean_ret"] - dec_raw.iloc[0]["mean_ret"]
+        print(f"  Top − Bottom (raw): {raw_spread:+.2%}")
+
+    print("\n── Decile Analysis (MARKET-NEUTRAL relative returns) ──")
+    dec_rel = run_decile_analysis(scans, args.horizon, use_relative=True)
+    if not dec_rel.empty:
+        print(dec_rel.to_string(index=False))
+        rel_spread = dec_rel.iloc[-1]["mean_ret"] - dec_rel.iloc[0]["mean_ret"]
+        print(f"\n  Top − Bottom (relative, α): {rel_spread:+.2%}")
+        diffs = dec_rel["mean_ret"].diff().dropna()
+        monotone = (diffs >= -0.001).all()
+        n_inversions = (diffs < -0.001).sum()
+        print(f"  Monotonically increasing: {monotone} ({n_inversions} inversions)")
 
     print("\n" + "=" * 72)
     print("  VERDICT")
     print("=" * 72)
-    if not dec.empty:
-        spread_bps = (dec.iloc[-1]["mean_ret"] - dec.iloc[0]["mean_ret"]) * 10_000
-        if spread_bps > 100 and t_stat > 1.0:
-            print(f"  ✓ Ranker shows positive cross-sectional edge ({spread_bps:.0f}bps spread)")
-        elif spread_bps > 50:
-            print(f"  ⚠ Marginal edge ({spread_bps:.0f}bps). Low statistical power with N={len(ics)} days.")
+    if not dec_rel.empty:
+        spread_bps = (dec_rel.iloc[-1]["mean_ret"] - dec_rel.iloc[0]["mean_ret"]) * 10_000
+        if spread_bps > 100 and t_stat > 2.0 and monotone:
+            print(f"  ✓ Ranker shows clean cross-sectional alpha ({spread_bps:.0f}bps monotonic spread)")
+        elif spread_bps > 50 and t_stat > 1.5:
+            print(f"  ⚠ Suggestive edge ({spread_bps:.0f}bps α). Needs larger sample before shipping.")
         else:
-            print(f"  ✗ No cross-sectional edge detected. Do NOT build eviction engine on this ranker.")
+            print(f"  ✗ No robust edge. Do NOT build eviction engine.")
 
 
 if __name__ == "__main__":
