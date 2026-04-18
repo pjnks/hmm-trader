@@ -715,6 +715,15 @@ Where:
   5. **Realized/unrealized P&L split**: CITRINE dashboard (:8070) top row now shows Realized P&L (closed trades) and Unrealized P&L (open positions) separately. Consolidated dashboard (:8090) same. Service re-enabled.
   6. **Blank :8060 dashboard**: AGATE+BERYL dashboard rendered blank (HTTP 200 but no content). `signal_strength` column in `paper_trades.db` contained binary blobs — Dash JSON serializer crash. Fixed: coerce to string in `_trades_table()`.
 
+- **Sprint 15 — BERYL Cross-Sectional Ranker & 6-Month Backfill** (2026-04-17/18, IN PROGRESS):
+  1. **IC measurement**: T+3 IC = -0.069 (p=0.031) — statistically significant negative. High-confidence HMM signals are anti-predictive (calibration inversion). <70% confidence bucket outperforms 90-95% bucket.
+  2. **Bimodal scoring function** (`compute_bimodal_alpha` in `cross_sectional_ranker.py`): Piecewise confidence scoring — Phase 1 (<70%): Information Advantage (score=1.0), Phase 2 (90-95%): Valley of Death (score=0.1), Phase 3 (≥95%): Structural Drift (score=0.8). Multiplied by sojourn decay × velocity boost.
+  3. **Market-neutralization**: `relative_return = fwd_return - daily_universe_mean` strips beta from decile analysis. Prevents conflating cross-day market moves with ticker-level alpha.
+  4. **Feature importance gate** (`feature_importance.py`): Random Forest (500 trees, max_depth=6) on 4 features: confidence, persistence, velocity, confirmations. Drop any feature with <5% Gini importance before parameter tuning.
+  5. **6-month backfill** (`backfill_scan_journal.py`): Option C quarterly expanding-window + Ensemble HMM. 13,230 rows, 98 tickers, 135 trading days (Oct 2025 → Apr 2026), **4.5% fallback** (Gate 1 <20% threshold: ✅ PASS). Critical fix: `dropna(subset=feature_cols)` resolved 39.7%→4.5% fallback (rolling-window NaN at training slice boundaries).
+  6. **Monday 3-gate validation protocol**: (1) Data Integrity <20% fallback ✅, (2) Feature Parsimony — excise <5% Gini features, (3) Monotonic Decile Spread — need market-neutralized Top-Bottom T+3 spread >1.0%. BERYL live engine FROZEN until Gate 3 passes.
+  - New files: `cross_sectional_ranker.py`, `feature_importance.py`, `backfill_scan_journal.py`
+
 ### CITRINE Optimization & Portfolio Rotation
 - **Per-ticker HMM optimization**: COMPLETE + RE-OPTIMIZED (585 trials across 100 tickers, 82 positive Sharpe — 83%)
   - Top tickers: FER (1.301), MELI (1.170), STX (1.169), CEG (1.122), WBD (0.944), AXON (0.836), TSLA (0.828)

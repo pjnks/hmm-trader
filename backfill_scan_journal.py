@@ -145,6 +145,11 @@ def backfill_ticker(ticker: str, configs: dict,
         try:
             train_feat = build_hmm_features(train)
             train_feat = attach_all(train_feat)
+            # Drop NaN rows from rolling-window features (realized_vol_ratio,
+            # return_autocorr, realized_kurtosis use ~20-day windows)
+            train_feat = train_feat.dropna(subset=feature_cols)
+            if len(train_feat) < MIN_TRAINING_OBS:
+                continue
         except Exception as e:
             print(f"    [{ticker} {q_start:%Y-%m-%d}] feature build failed: {type(e).__name__}: {e}")
             continue
@@ -164,6 +169,7 @@ def backfill_ticker(ticker: str, configs: dict,
         try:
             full_feat = build_hmm_features(full_slice)
             full_feat = attach_all(full_feat)
+            full_feat = full_feat.dropna(subset=feature_cols)
             predictions = model.predict(full_feat)
         except Exception as e:
             print(f"    [{ticker} {q_start:%Y-%m-%d}] predict failed: {type(e).__name__}: {e}")
