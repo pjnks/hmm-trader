@@ -5,8 +5,11 @@ Random Forest Regressor on the scan_journal dataset.
 Target:    relative_return_T3 (market-neutralized)
 Features:  confidence, persistence, velocity, confirmations
 
-Gate rule (per directive): drop any feature with <5% Gini importance
-before wiring the ranker to live capital. Parsimony is survival.
+Gate rule (revised per quant audit):
+  - Gini <5% alone does NOT trigger DROP (collinearity bias)
+  - Permutation importance <0 (noise) is the hard kill
+  - Correlated features (|ρ| > 0.7) grouped before excision decision
+  - A feature survives if EITHER Gini ≥5% OR permutation > 1 std
 
 Usage:
     python feature_importance.py --horizon 3 [--table scan_journal_backfill]
@@ -19,6 +22,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy.stats import spearmanr
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.inspection import permutation_importance
 
@@ -120,17 +124,63 @@ def main():
         flag = " ⚠ NOISE" if imp < std else ""
         print(f"  {feat:<15} {imp:+.4f}  ±{std:.4f}{flag}")
 
-    # 3. Parsimony verdict
+    # 3. Correlation grouping (detect collinearity before excision)
+    print("\n── Feature Correlation Matrix (Spearman) ──")
+    corr_pairs = []
+    features = list(X.columns)
+    for i in range(len(features)):
+        for j in range(i + 1, len(features)):
+            rho, _ = spearmanr(X[features[i]], X[features[j]])
+            corr_pairs.append((features[i], features[j], rho))
+            print(f"  {features[i]:<15} × {features[j]:<15}  ρ = {rho:+.3f}"
+                  f"{'  ⚠ COLLINEAR' if abs(rho) > 0.7 else ''}")
+
+    collinear_groups = []
+    for f1, f2, rho in corr_pairs:
+        if abs(rho) > 0.7:
+            collinear_groups.append((f1, f2, rho))
+
+    # 4. Revised parsimony verdict (audit-corrected)
+    #    A feature is DROP only if:
+    #      - Gini < 5%  AND  permutation importance < its own std (noise)
+    #      - AND it is NOT in a collinear group where its partner is strong
     print("\n" + "=" * 72)
-    print("  PARSIMONY VERDICT")
+    print("  PARSIMONY VERDICT (audit-corrected)")
     print("=" * 72)
-    survivors = [f for f, imp in gini.items() if imp >= 0.05]
-    casualties = [f for f, imp in gini.items() if imp < 0.05]
-    print(f"  Keep: {survivors}")
-    if casualties:
-        print(f"  Drop: {casualties}")
-    else:
-        print(f"  All features clear the 5% threshold.")
+
+    survivors = []
+    casualties = []
+    protected = []
+
+    for feat in features:
+        g = gini[feat]
+        p = perm_ser[feat]
+        p_std = perm_std[feat]
+        gini_ok = g >= 0.05
+        perm_ok = p > p_std  # signal exceeds noise floor
+
+        if gini_ok or perm_ok:
+            survivors.append(feat)
+            reason = f"Gini={g:.3f}" + (f", Perm={p:+.4f}" if perm_ok else "")
+            print(f"  ✓ KEEP  {feat:<15}  ({reason})")
+        else:
+            # Check if feature is in a collinear group with a survivor
+            partner_strong = False
+            for f1, f2, rho in collinear_groups:
+                partner = f2 if f1 == feat else (f1 if f2 == feat else None)
+                if partner and (gini[partner] >= 0.05 or perm_ser[partner] > perm_std[partner]):
+                    partner_strong = True
+                    protected.append(feat)
+                    survivors.append(feat)
+                    print(f"  ⚡ PROTECTED  {feat:<15}  (Gini={g:.3f}, Perm={p:+.4f})"
+                          f"  — collinear with {partner} (ρ={rho:+.3f})")
+                    break
+            if not partner_strong:
+                casualties.append(feat)
+                print(f"  ✗ DROP  {feat:<15}  (Gini={g:.3f}, Perm={p:+.4f})")
+
+    print(f"\n  Final: Keep {len(survivors)}, Drop {len(casualties)}"
+          f"{f', Protected {len(protected)} (collinearity)' if protected else ''}")
 
 
 if __name__ == "__main__":

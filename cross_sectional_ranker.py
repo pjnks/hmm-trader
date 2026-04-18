@@ -261,6 +261,60 @@ def run_decile_analysis(
     return summary
 
 
+def run_confidence_zone_diagnostic(
+    df: pd.DataFrame,
+    horizon: int,
+) -> pd.DataFrame:
+    """
+    Trap #1 diagnostic: break out neutralized returns by confidence zone
+    to check whether the >=95% bucket actually earns alpha or just rides beta.
+    """
+    rel_col = f"rel_ret_T{horizon}"
+    sub = df[df["regime"] == "BULL"].dropna(subset=["confidence", rel_col]).copy()
+
+    zones = [
+        ("< 0.60 (noise)",       sub["confidence"] < 0.60),
+        ("0.60–0.70 (Phase 1)",  (sub["confidence"] >= 0.60) & (sub["confidence"] < 0.70)),
+        ("0.70–0.90 (mid)",      (sub["confidence"] >= 0.70) & (sub["confidence"] < 0.90)),
+        ("0.90–0.95 (VoD)",      (sub["confidence"] >= 0.90) & (sub["confidence"] < 0.95)),
+        ("≥ 0.95 (Struct Drift)", sub["confidence"] >= 0.95),
+    ]
+
+    rows = []
+    for label, mask in zones:
+        z = sub[mask]
+        if len(z) == 0:
+            rows.append({"zone": label, "n": 0, "mean_rel_ret": np.nan,
+                         "hit_rate": np.nan, "mean_conf": np.nan})
+            continue
+        rows.append({
+            "zone": label,
+            "n": len(z),
+            "mean_rel_ret": z[rel_col].mean(),
+            "hit_rate": (z[rel_col] > 0).mean(),
+            "mean_conf": z["confidence"].mean(),
+        })
+    return pd.DataFrame(rows)
+
+
+def check_top_decile_vs_benchmark(
+    decile_df: pd.DataFrame,
+) -> tuple[bool, float]:
+    """
+    Trap #3 check: top decile must beat universe benchmark (mean_ret > 0
+    in neutralized terms). A positive spread driven only by short-side alpha
+    is unmonetizable in a long-only strategy.
+
+    Returns (passes, top_decile_return).
+    """
+    if decile_df.empty:
+        return False, np.nan
+    top_decile = decile_df.iloc[-1]  # highest score bucket
+    top_ret = top_decile["mean_ret"]
+    # In market-neutralized terms, mean_ret > 0 means top decile beats universe
+    return top_ret > 0, top_ret
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--horizon", type=int, default=3)
@@ -342,15 +396,53 @@ def main():
         n_inversions = (diffs < -0.001).sum()
         print(f"  Monotonically increasing: {monotone} ({n_inversions} inversions)")
 
+    # ── Trap #1: Confidence Zone Diagnostic ──
+    print("\n── Confidence Zone Diagnostic (Trap #1: Structural Drift check) ──")
+    zone_diag = run_confidence_zone_diagnostic(scans, args.horizon)
+    if not zone_diag.empty:
+        print(zone_diag.to_string(index=False))
+        # Flag the >=95% bucket specifically
+        struct_drift = zone_diag[zone_diag["zone"].str.contains("Struct")]
+        if len(struct_drift) > 0 and struct_drift.iloc[0]["n"] > 10:
+            sd_ret = struct_drift.iloc[0]["mean_rel_ret"]
+            if sd_ret <= 0:
+                print(f"\n  ⚠ STRUCTURAL DRIFT TRAP: ≥95% bucket has mean relative return "
+                      f"{sd_ret:+.4f} — scoring at 0.8 rewards beta, not alpha.")
+                print(f"    → Flatten right tail: set ≥95% base_score to 0.0 or 0.1")
+            else:
+                print(f"\n  ✓ ≥95% bucket relative return {sd_ret:+.4f} — alpha confirmed.")
+
+    # ── Trap #3: Top Decile vs Universe Benchmark ──
+    top_passes = False
+    top_ret = np.nan
+    if not dec_rel.empty:
+        top_passes, top_ret = check_top_decile_vs_benchmark(dec_rel)
+        print(f"\n── Top Decile vs Universe (Trap #3: Long-Only Illusion check) ──")
+        print(f"  Top decile mean neutralized return: {top_ret:+.4f}")
+        if top_passes:
+            print(f"  ✓ Top decile beats universe — long-only alpha confirmed.")
+        else:
+            print(f"  ✗ LONG-ONLY ILLUSION: Top decile does NOT beat universe mean.")
+            print(f"    Spread is driven by short-side alpha — unmonetizable long-only.")
+
     print("\n" + "=" * 72)
     print("  VERDICT")
     print("=" * 72)
     if not dec_rel.empty:
         spread_bps = (dec_rel.iloc[-1]["mean_ret"] - dec_rel.iloc[0]["mean_ret"]) * 10_000
-        if spread_bps > 100 and t_stat > 2.0 and monotone:
+        # Gate 3 now requires ALL of:
+        #   1. spread > 100bps
+        #   2. IC t-stat > 2.0
+        #   3. near-monotonic
+        #   4. top decile beats universe (Trap #3 fix)
+        if spread_bps > 100 and t_stat > 2.0 and monotone and top_passes:
             print(f"  ✓ Ranker shows clean cross-sectional alpha ({spread_bps:.0f}bps monotonic spread)")
-        elif spread_bps > 50 and t_stat > 1.5:
+            print(f"    Top decile α: {top_ret:+.4f} (beats universe)")
+        elif spread_bps > 50 and t_stat > 1.5 and top_passes:
             print(f"  ⚠ Suggestive edge ({spread_bps:.0f}bps α). Needs larger sample before shipping.")
+        elif spread_bps > 100 and not top_passes:
+            print(f"  ✗ FAIL: {spread_bps:.0f}bps spread but top decile below universe.")
+            print(f"    This is short-side alpha only. Do NOT build eviction engine.")
         else:
             print(f"  ✗ No robust edge. Do NOT build eviction engine.")
 
