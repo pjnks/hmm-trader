@@ -715,14 +715,15 @@ Where:
   5. **Realized/unrealized P&L split**: CITRINE dashboard (:8070) top row now shows Realized P&L (closed trades) and Unrealized P&L (open positions) separately. Consolidated dashboard (:8090) same. Service re-enabled.
   6. **Blank :8060 dashboard**: AGATE+BERYL dashboard rendered blank (HTTP 200 but no content). `signal_strength` column in `paper_trades.db` contained binary blobs — Dash JSON serializer crash. Fixed: coerce to string in `_trades_table()`.
 
-- **Sprint 15 — BERYL Cross-Sectional Ranker & 6-Month Backfill** (2026-04-17/18, IN PROGRESS):
-  1. **IC measurement**: T+3 IC = -0.069 (p=0.031) — statistically significant negative. High-confidence HMM signals are anti-predictive (calibration inversion). <70% confidence bucket outperforms 90-95% bucket.
-  2. **Bimodal scoring function** (`compute_bimodal_alpha` in `cross_sectional_ranker.py`): Piecewise confidence scoring — Phase 1 (<70%): Information Advantage (score=1.0), Phase 2 (90-95%): Valley of Death (score=0.1), Phase 3 (≥95%): Structural Drift (score=0.8). Multiplied by sojourn decay × velocity boost.
-  3. **Market-neutralization**: `relative_return = fwd_return - daily_universe_mean` strips beta from decile analysis. Prevents conflating cross-day market moves with ticker-level alpha.
-  4. **Feature importance gate** (`feature_importance.py`): Random Forest (500 trees, max_depth=6) on 4 features: confidence, persistence, velocity, confirmations. Drop any feature with <5% Gini importance before parameter tuning.
-  5. **6-month backfill** (`backfill_scan_journal.py`): Option C quarterly expanding-window + Ensemble HMM. 13,230 rows, 98 tickers, 135 trading days (Oct 2025 → Apr 2026), **4.5% fallback** (Gate 1 <20% threshold: ✅ PASS). Critical fix: `dropna(subset=feature_cols)` resolved 39.7%→4.5% fallback (rolling-window NaN at training slice boundaries).
-  6. **Monday 3-gate validation protocol**: (1) Data Integrity <20% fallback ✅, (2) Feature Parsimony — excise <5% Gini features, (3) Monotonic Decile Spread — need market-neutralized Top-Bottom T+3 spread >1.0%. BERYL live engine FROZEN until Gate 3 passes.
-  - New files: `cross_sectional_ranker.py`, `feature_importance.py`, `backfill_scan_journal.py`
+- **Sprint 15 — BERYL Cross-Sectional Ranker Kill & Time-Series Pivot** (2026-04-17/18, COMPLETE):
+  1. **IC measurement**: T+3 IC = -0.069 (p=0.031) — statistically significant negative. Built bimodal scoring function, market-neutralization, feature importance gate with 3 audit trap patches (collinearity protection, structural drift diagnostic, long-only illusion check).
+  2. **6-month backfill** (`backfill_scan_journal.py`): Option C quarterly expanding-window + Ensemble HMM. 13,230 rows, 98 tickers, 135 trading days (Oct 2025 → Apr 2026), 4.5% fallback. Data retained for time-series analysis.
+  3. **Gate 2 PASSED**: All 4 features survived (confidence 0.441, velocity 0.325, persistence 0.151, confirmations 0.083). Velocity ρ=+0.49 with confidence — NOT collinear, captures independent momentum info. Permutation importance confirmed all 4 features >6x their noise floor.
+  4. **Gate 3 FAILED**: Bimodal IC = -0.010 (t=-1.04), Top-Bottom neutralized spread = -0.04% (flat, 3 inversions). Structural drift trap fired: ≥95% confidence zone = -0.05% neutralized return (N=1,819). Phase 1 (0.60-0.70) had +4bps gross alpha but execution friction >5bps = negative EV.
+  5. **KILL ACCEPTED**: HMM has zero cross-sectional predictive power. Cannot rank assets against each other. `cross_sectional_ranker.py` and `feature_importance.py` DELETED from Mac and VM.
+  6. **Pivot to time-series eviction**: BERYL is a pure absolute-momentum regime filter. New direction: entry at 0.60-0.80 confidence (capturing velocity of transition), exit on self-degradation below 0.60 or 1.5x ATR catastrophe stop. No relative comparison — each asset evaluated independently.
+  - **Key insight**: HMM IS a time-series regime filter (11/11 wins from detecting WHEN). ISN'T a cross-sectional ranker (cannot tell WHICH asset is better).
+  - Remaining file: `backfill_scan_journal.py` (data useful for time-series analysis)
 
 ### CITRINE Optimization & Portfolio Rotation
 - **Per-ticker HMM optimization**: COMPLETE + RE-OPTIMIZED (585 trials across 100 tickers, 82 positive Sharpe — 83%)

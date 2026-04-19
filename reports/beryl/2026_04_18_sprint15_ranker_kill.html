@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sprint 15 — BERYL Cross-Sectional Ranker Kill & Time-Series Pivot</title>
+<style>
+  :root {
+    --neon-green: #00ff9f;
+    --neon-cyan: #00f0ff;
+    --neon-pink: #ff2d6b;
+    --neon-yellow: #ffe156;
+    --dark-bg: #030508;
+    --panel: #0a1520;
+    --border: #1a3040;
+    --text: #d0eaf5;
+    --dim: #8ab4c8;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--dark-bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 40px 24px;
+    line-height: 1.6;
+  }
+  h1 { color: var(--neon-pink); font-size: 1.6em; margin-bottom: 4px; }
+  h2 { color: var(--neon-cyan); font-size: 1.2em; margin: 32px 0 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  h3 { color: var(--neon-green); font-size: 1.0em; margin: 20px 0 8px; }
+  .subtitle { color: var(--dim); font-size: 0.85em; margin-bottom: 24px; }
+  .card-row { display: flex; gap: 12px; margin: 16px 0; flex-wrap: wrap; }
+  .card {
+    flex: 1;
+    min-width: 160px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+  }
+  .card .label { color: var(--dim); font-size: 0.75em; text-transform: uppercase; letter-spacing: 1px; }
+  .card .value { font-size: 1.5em; font-weight: bold; margin-top: 4px; }
+  .card .value.pass { color: var(--neon-green); }
+  .card .value.fail { color: var(--neon-pink); }
+  .card .value.neutral { color: var(--neon-yellow); }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.85em; }
+  th { color: var(--neon-cyan); text-align: left; padding: 8px 6px; border-bottom: 2px solid var(--border); }
+  td { padding: 6px; border-bottom: 1px solid var(--border); }
+  .bar-container { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  .bar-label { min-width: 180px; font-size: 0.8em; color: var(--dim); }
+  .bar { height: 18px; border-radius: 3px; transition: width 0.3s; }
+  .bar-value { font-size: 0.8em; min-width: 60px; }
+  ul { margin: 8px 0 8px 20px; }
+  li { margin: 4px 0; font-size: 0.9em; }
+  .verdict-box {
+    background: var(--panel);
+    border: 2px solid var(--neon-pink);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 20px 0;
+    text-align: center;
+  }
+  .verdict-box.pass { border-color: var(--neon-green); }
+  .verdict-title { font-size: 1.2em; font-weight: bold; margin-bottom: 8px; }
+  .insight-box {
+    background: #0d1a28;
+    border-left: 3px solid var(--neon-cyan);
+    padding: 12px 16px;
+    margin: 16px 0;
+    font-size: 0.85em;
+  }
+  .timeline { margin: 12px 0; }
+  .timeline-item { display: flex; gap: 12px; margin: 6px 0; font-size: 0.85em; }
+  .timeline-date { min-width: 80px; color: var(--neon-cyan); }
+  code { background: #112233; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
+</style>
+</head>
+<body>
+
+<h1>Sprint 15 — BERYL Cross-Sectional Ranker Kill</h1>
+<div class="subtitle">2026-04-17/18 | ~12 engineering hours | Perry Jenkins</div>
+
+<h2>TL;DR</h2>
+<ul>
+  <li><strong>Cross-sectional ranker KILLED.</strong> HMM has zero cross-sectional predictive power (IC = -0.010, flat decile spread).</li>
+  <li>13,230-row backfill validated (98 tickers, 135 days, 4.5% fallback). Gate 1 passed.</li>
+  <li>Gate 2 passed: all 4 features survived (velocity ρ=+0.49 — HMM posteriors carry momentum info).</li>
+  <li>Gate 3 failed: structural drift trap fired (≥95% confidence = -0.05% neutralized return). Phase 1 alpha (+4bps) < execution friction (5bps).</li>
+  <li><strong>Pivot to time-series eviction</strong>: entry at 0.60-0.80 confidence velocity, exit on self-degradation below 0.60.</li>
+</ul>
+
+<h2>Headline Metrics</h2>
+<div class="card-row">
+  <div class="card">
+    <div class="label">Gate 1: Data</div>
+    <div class="value pass">PASS</div>
+    <div style="color:var(--dim);font-size:0.75em;margin-top:4px;">4.5% fallback</div>
+  </div>
+  <div class="card">
+    <div class="label">Gate 2: Features</div>
+    <div class="value pass">PASS</div>
+    <div style="color:var(--dim);font-size:0.75em;margin-top:4px;">4/4 survived</div>
+  </div>
+  <div class="card">
+    <div class="label">Gate 3: Alpha</div>
+    <div class="value fail">FAIL</div>
+    <div style="color:var(--dim);font-size:0.75em;margin-top:4px;">-0.04% spread</div>
+  </div>
+  <div class="card">
+    <div class="label">Ranker IC</div>
+    <div class="value fail">-0.010</div>
+    <div style="color:var(--dim);font-size:0.75em;margin-top:4px;">t = -1.04</div>
+  </div>
+</div>
+
+<h2>Gate 2: Feature Importance (PASSED)</h2>
+<table>
+  <tr><th>Feature</th><th>Gini</th><th>Permutation</th><th>ρ(conf)</th><th>Verdict</th></tr>
+  <tr><td>confidence</td><td>0.441</td><td>+0.044 ±0.002</td><td>—</td><td style="color:var(--neon-green);">KEEP</td></tr>
+  <tr><td>velocity</td><td>0.325</td><td>+0.024 ±0.002</td><td>+0.490</td><td style="color:var(--neon-green);">KEEP</td></tr>
+  <tr><td>persistence</td><td>0.151</td><td>+0.012 ±0.001</td><td>+0.167</td><td style="color:var(--neon-green);">KEEP</td></tr>
+  <tr><td>confirmations</td><td>0.083</td><td>+0.014 ±0.001</td><td>-0.011</td><td style="color:var(--neon-green);">KEEP</td></tr>
+</table>
+<div class="insight-box">
+  <strong>Key finding:</strong> velocity (Δconfidence) has ρ = +0.49 with confidence — NOT collinear. The derivative of HMM posteriors captures genuinely independent information about regime transitions. A stock hitting 0.80 confidence from 0.60 (accelerating) has a fundamentally different return profile than one hitting 0.80 from 0.95 (decaying).
+</div>
+
+<h2>Gate 3: Decile Analysis (FAILED)</h2>
+
+<h3>Neutralized Decile Returns</h3>
+<div class="bar-container">
+  <div class="bar-label">D0 (lowest score)</div>
+  <div class="bar" style="width:50px;background:var(--neon-green);"></div>
+  <div class="bar-value" style="color:var(--neon-green);">+0.09%</div>
+</div>
+<div class="bar-container">
+  <div class="bar-label">D1</div>
+  <div class="bar" style="width:80px;background:var(--neon-pink);"></div>
+  <div class="bar-value" style="color:var(--neon-pink);">-0.20%</div>
+</div>
+<div class="bar-container">
+  <div class="bar-label">D2</div>
+  <div class="bar" style="width:100px;background:var(--neon-pink);"></div>
+  <div class="bar-value" style="color:var(--neon-pink);">-0.25%</div>
+</div>
+<div class="bar-container">
+  <div class="bar-label">D3</div>
+  <div class="bar" style="width:90px;background:var(--neon-pink);"></div>
+  <div class="bar-value" style="color:var(--neon-pink);">-0.22%</div>
+</div>
+<div class="bar-container">
+  <div class="bar-label">D4</div>
+  <div class="bar" style="width:5px;background:var(--neon-green);"></div>
+  <div class="bar-value" style="color:var(--neon-green);">+0.01%</div>
+</div>
+<div class="bar-container">
+  <div class="bar-label">D5</div>
+  <div class="bar" style="width:200px;background:var(--neon-pink);"></div>
+  <div class="bar-value" style="color:var(--neon-pink);">-0.54%</div>
+</div>
+<div class="bar-container">
+  <div class="bar-label">D6</div>
+  <div class="bar" style="width:110px;background:var(--neon-pink);"></div>
+  <div class="bar-value" style="color:var(--neon-pink);">-0.27%</div>
+</div>
+<div class="bar-container">
+  <div class="bar-label">D7</div>
+  <div class="bar" style="width:30px;background:var(--neon-pink);"></div>
+  <div class="bar-value" style="color:var(--neon-pink);">-0.07%</div>
+</div>
+<div class="bar-container">
+  <div class="bar-label">D8</div>
+  <div class="bar" style="width:80px;background:var(--neon-green);"></div>
+  <div class="bar-value" style="color:var(--neon-green);">+0.20%</div>
+</div>
+<div class="bar-container">
+  <div class="bar-label">D9 (highest score)</div>
+  <div class="bar" style="width:20px;background:var(--neon-green);"></div>
+  <div class="bar-value" style="color:var(--neon-green);">+0.05%</div>
+</div>
+
+<p style="color:var(--dim);font-size:0.85em;margin-top:8px;">
+  Top-Bottom spread: <span style="color:var(--neon-pink);">-0.04%</span> | 3 inversions | NOT monotonic
+</p>
+
+<h3>Confidence Zone Diagnostic (Structural Drift Trap)</h3>
+<table>
+  <tr><th>Zone</th><th>N</th><th>Neutralized Return</th><th>Hit Rate</th></tr>
+  <tr><td>&lt; 0.60 (noise)</td><td>178</td><td style="color:var(--neon-pink);">-0.50%</td><td>43.8%</td></tr>
+  <tr><td style="color:var(--neon-green);">0.60-0.70 (Phase 1)</td><td>318</td><td style="color:var(--neon-green);">+0.04%</td><td>46.5%</td></tr>
+  <tr><td>0.70-0.90 (mid)</td><td>1,636</td><td style="color:var(--neon-pink);">-0.17%</td><td>46.6%</td></tr>
+  <tr><td>0.90-0.95 (VoD)</td><td>682</td><td style="color:var(--neon-pink);">-0.04%</td><td>49.3%</td></tr>
+  <tr><td>≥ 0.95 (Struct Drift)</td><td style="color:var(--neon-yellow);">1,819</td><td style="color:var(--neon-pink);">-0.05%</td><td>47.6%</td></tr>
+</table>
+
+<div class="insight-box">
+  <strong>Structural Drift Trap FIRED:</strong> The ≥95% bucket (N=1,819 — 40% of all scored rows) has negative neutralized returns. Scoring it at 0.8 rewards beta, not alpha. Phase 1 (0.60-0.70) is the only positive zone, but +4bps gross alpha is annihilated by ≥5bps round-trip execution friction.
+</div>
+
+<div class="verdict-box">
+  <div class="verdict-title" style="color:var(--neon-pink);">VERDICT: KILL</div>
+  <div style="font-size:0.9em;">HMM has zero cross-sectional predictive power.<br>Do NOT build eviction engine.</div>
+</div>
+
+<h2>EV Analysis: Why Phase 1 is Untradeable</h2>
+<table>
+  <tr><th>Component</th><th>Value</th></tr>
+  <tr><td>Phase 1 gross alpha</td><td>+4 bps</td></tr>
+  <tr><td>Bid-ask spread (2 crosses)</td><td>-2 to -3 bps</td></tr>
+  <tr><td>Exchange fees + slippage</td><td>-1 to -2 bps</td></tr>
+  <tr><td style="color:var(--neon-yellow);"><strong>Net EV</strong></td><td style="color:var(--neon-pink);"><strong>-1 to 0 bps</strong></td></tr>
+</table>
+<p style="color:var(--dim);font-size:0.85em;margin-top:8px;">
+  Strategy perfectly identifies regime shifts just to donate all profits to market makers.
+</p>
+
+<h2>What The HMM IS vs ISN'T</h2>
+<div class="card-row">
+  <div class="card" style="border-color:var(--neon-green);">
+    <div class="label">IS</div>
+    <div style="font-size:0.85em;margin-top:8px;text-align:left;">
+      A highly accurate <strong>absolute-momentum regime filter</strong>.<br>
+      11/11 wins from detecting <em>when</em> a specific asset has tailwinds.<br>
+      Velocity (Δconf) captures regime transitions, not levels.
+    </div>
+  </div>
+  <div class="card" style="border-color:var(--neon-pink);">
+    <div class="label">ISN'T</div>
+    <div style="font-size:0.85em;margin-top:8px;text-align:left;">
+      A cross-sectional ranker.<br>
+      Cannot tell you <em>which</em> asset is better than another on any given day.<br>
+      13,230 rows across 98 tickers proved this definitively.
+    </div>
+  </div>
+</div>
+
+<h2>Pivot: Time-Series Eviction Engine</h2>
+<ul>
+  <li><strong>Entry Gate:</strong> Confidence crosses into 0.60-0.80 zone (capturing velocity of transition)</li>
+  <li><strong>Exit Gate:</strong> Confidence breaks below 0.60 OR 1.5x ATR catastrophe stop</li>
+  <li><strong>No relative comparison</strong> — each asset evaluated independently on self-degradation</li>
+  <li>Backfill data (13,230 rows) retained in <code>scan_journal_backfill</code> table for calibration</li>
+</ul>
+
+<h2>Portfolio Status (2026-04-18)</h2>
+<table>
+  <tr><th>Project</th><th>Trades</th><th>Win Rate</th><th>Realized P&L</th><th>Status</th></tr>
+  <tr><td style="color:var(--neon-green);">BERYL</td><td>11 closed</td><td style="color:var(--neon-green);">100%</td><td style="color:var(--neon-green);">+$303.50</td><td>3 positions</td></tr>
+  <tr><td>CITRINE</td><td>172 closed</td><td>39.5%</td><td style="color:var(--neon-pink);">-$448.95</td><td>14 positions</td></tr>
+  <tr><td>AGATE</td><td>11 closed</td><td>18.2%</td><td style="color:var(--neon-pink);">-$463.82</td><td>—</td></tr>
+  <tr><td>DIAMOND</td><td>560 settled</td><td>51.8%</td><td style="color:var(--neon-pink);">-$11.90</td><td>240 open</td></tr>
+</table>
+
+<h2>Timeline</h2>
+<div class="timeline">
+  <div class="timeline-item"><div class="timeline-date">Apr 17 AM</div><div>Measured live HMM IC: T+3 = -0.069 (p=0.031). Calibration inversion confirmed.</div></div>
+  <div class="timeline-item"><div class="timeline-date">Apr 17 PM</div><div>Built bimodal scorer, market-neutralization, feature importance gate. Designed 3-gate protocol.</div></div>
+  <div class="timeline-item"><div class="timeline-date">Apr 17 EVE</div><div>Built and ran Option C backfill. 4 debug iterations: silent exceptions → column casing → rolling-window NaN → 4.5% fallback. Gate 1 passed.</div></div>
+  <div class="timeline-item"><div class="timeline-date">Apr 18 AM</div><div>Quant audit identified 3 statistical traps. Patched all 3 (collinearity protection, structural drift diagnostic, long-only illusion check).</div></div>
+  <div class="timeline-item"><div class="timeline-date">Apr 18 PM</div><div>Ran Gate 2: all 4 features survived. Ran Gate 3: FAILED. Kill accepted. Dead code purged. Pivot to time-series eviction.</div></div>
+</div>
+
+<h2>Decision Log</h2>
+<table>
+  <tr><th>Decision</th><th>Options</th><th>Chosen</th><th>Rationale</th></tr>
+  <tr><td>Backfill method</td><td>Option B (static fit) vs Option C (expanding window)</td><td>Option C</td><td>Equal Look-Ahead Fallacy — variance contamination is asymmetric in HMMs</td></tr>
+  <tr><td>Feature kill logic</td><td>Gini-only vs Gini+Permutation+Collinearity</td><td>Combined</td><td>Gini biased by collinearity; velocity=Δconf mechanically correlated</td></tr>
+  <tr><td>Post-kill path</td><td>Accept kill / Narrow aperture / Pivot question</td><td>Kill + Pivot</td><td>Phase 1 alpha (4bps) < friction (5bps). Time-series eviction is architecturally honest.</td></tr>
+  <tr><td>Dead code</td><td>Archive vs Delete</td><td>Delete</td><td>Dead code clutters repo. Findings preserved in memory files and this report.</td></tr>
+</table>
+
+<h2>Audit Trap Patches (Pre-Validation)</h2>
+<table>
+  <tr><th>Trap</th><th>Risk</th><th>Fix</th><th>Fired?</th></tr>
+  <tr><td>#1 Structural Drift</td><td>≥95% bucket rewards beta</td><td><code>run_confidence_zone_diagnostic()</code></td><td style="color:var(--neon-pink);">YES</td></tr>
+  <tr><td>#2 Gini Collinearity</td><td>Velocity killed by RF splitting</td><td>Spearman ρ + partner protection</td><td>No (ρ=0.49 < 0.7)</td></tr>
+  <tr><td>#3 Long-Only Illusion</td><td>Spread from short-side alpha</td><td><code>check_top_decile_vs_benchmark()</code></td><td>No (top decile +0.05%)</td></tr>
+</table>
+
+<h2>Next Actions</h2>
+<ol>
+  <li><strong>Design time-series eviction engine</strong> — entry at 0.60-0.80 confidence velocity, exit at &lt;0.60 or ATR stop</li>
+  <li><strong>Calibrate entry/exit thresholds</strong> using scan_journal_backfill data (13,230 rows)</li>
+  <li><strong>Validate velocity as entry signal</strong> — conditional T+3 return analysis by Δconfidence bucket</li>
+  <li><strong>BERYL live engine continues as-is</strong> — 11/11 wins, do not destabilize what works</li>
+</ol>
+
+<div style="margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color:var(--dim);font-size:0.75em;text-align:center;">
+  Sprint 15 Report | BERYL (B1) | HMM Regime Trader | Generated 2026-04-18
+</div>
+
+</body>
+</html>
