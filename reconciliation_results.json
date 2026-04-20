@@ -1,8 +1,11 @@
 [
   {
     "project": "AGATE",
-    "status": "ERROR: HTTPSConnectionPool(host='api.polygon.io', port=443): Max retries exceeded with url: /v2/aggs/ticker/X:SOLUSD/range/1/hour/1774825200001/1776005861414?adjusted=true&sort=asc&limit=5000&apiKey=Cpjlapf5mCDnyU5ODQOsEc8kmNO5xrZo (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x7feef8bae670>: Failed to resolve 'api.polygon.io' ([Errno 8] nodename nor servname provided, or not known)\"))",
-    "discrepancies": [],
+    "status": "DISCREPANCIES_FOUND",
+    "discrepancies": [
+      "CONFIDENCE DRIFT: live=0.973 vs backtest=0.907 (diff=0.066)",
+      "PRICE DRIFT: live=$70514.65 vs backtest=$86.17 (81732.0%)"
+    ],
     "live_signal": {
       "regime": "CHOP",
       "confidence": 0.973,
@@ -10,12 +13,20 @@
       "confirmations": 5,
       "price": 70514.65
     },
-    "backtest_signal": null
+    "backtest_signal": {
+      "regime": "CHOP",
+      "confidence": 0.9066343556306642,
+      "signal": "HOLD",
+      "confirmations": 5,
+      "price": 86.17
+    }
   },
   {
     "project": "BERYL",
-    "status": "NO_DATA",
-    "discrepancies": [],
+    "status": "DISCREPANCIES_FOUND",
+    "discrepancies": [
+      "REGIME MISMATCH: live=BULL vs backtest=BEAR"
+    ],
     "live_signal": {
       "regime": "BULL",
       "confidence": 0.9999052801143915,
@@ -23,7 +34,12 @@
       "confirmations": 4,
       "price": 391.79
     },
-    "backtest_signal": null
+    "backtest_signal": {
+      "regime": "BEAR",
+      "confidence": 0.9985204512718282,
+      "confirmations": 5,
+      "price": 201.68
+    }
   },
   {
     "project": "CITRINE",

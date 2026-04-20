@@ -56,11 +56,11 @@
     "wf_sharpe": 0.633
   },
   "MNST": {
-    "n_states": 6,
+    "n_states": 4,
     "feature_set": "extended",
-    "cov_type": "full",
-    "confirmations": 6,
-    "wf_sharpe": 0.0136
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.6376
   },
   "MAR": {
     "n_states": 4,
@@ -134,10 +134,10 @@
   },
   "MSFT": {
     "n_states": 4,
-    "feature_set": "extended",
-    "cov_type": "diag",
+    "feature_set": "base",
+    "cov_type": "full",
     "confirmations": 7,
-    "wf_sharpe": 0.3362
+    "wf_sharpe": 0.7458
   },
   "QCOM": {
     "n_states": 5,
@@ -183,10 +183,10 @@
   },
   "TEAM": {
     "n_states": 4,
-    "feature_set": "base",
+    "feature_set": "extended",
     "cov_type": "full",
-    "confirmations": 7,
-    "wf_sharpe": -0.2014
+    "confirmations": 6,
+    "wf_sharpe": 0.1205
   },
   "MU": {
     "n_states": 6,
@@ -309,10 +309,10 @@
   },
   "PLTR": {
     "n_states": 4,
-    "feature_set": "base",
-    "cov_type": "diag",
+    "feature_set": "extended_v2",
+    "cov_type": "full",
     "confirmations": 6,
-    "wf_sharpe": 0.2118
+    "wf_sharpe": 0.8306
   },
   "ADSK": {
     "n_states": 6,
@@ -350,11 +350,11 @@
     "wf_sharpe": 0.8075
   },
   "BKR": {
-    "n_states": 5,
+    "n_states": 6,
     "feature_set": "base",
-    "cov_type": "full",
-    "confirmations": 7,
-    "wf_sharpe": 0.1602
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 0.2171
   },
   "LRCX": {
     "n_states": 6,
@@ -469,11 +469,11 @@
     "wf_sharpe": 3.084
   },
   "INTU": {
-    "n_states": 4,
-    "feature_set": "base",
-    "cov_type": "diag",
+    "n_states": 5,
+    "feature_set": "extended",
+    "cov_type": "full",
     "confirmations": 6,
-    "wf_sharpe": 0.4448
+    "wf_sharpe": 0.9445
   },
   "WBD": {
     "n_states": 4,
@@ -624,10 +624,10 @@
   },
   "GILD": {
     "n_states": 5,
-    "feature_set": "extended",
+    "feature_set": "extended_v2",
     "cov_type": "full",
     "confirmations": 6,
-    "wf_sharpe": -0.0339
+    "wf_sharpe": 0.2423
   },
   "MELI": {
     "n_states": 5,
@@ -665,11 +665,11 @@
     "wf_sharpe": 0.5936
   },
   "KLAC": {
-    "n_states": 5,
-    "feature_set": "base",
+    "n_states": 4,
+    "feature_set": "extended_v2",
     "cov_type": "full",
-    "confirmations": 7,
-    "wf_sharpe": 0.1079
+    "confirmations": 6,
+    "wf_sharpe": 0.5574
   },
   "ISRG": {
     "n_states": 6,

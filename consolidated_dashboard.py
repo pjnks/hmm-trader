@@ -69,6 +69,7 @@ EXPECTED_SHARPE = {
     "CITRINE": 1.665,
     "DIAMOND": 0.500,
     "EMERALD": 1.000,
+    "E2-MLB":  0.500,
 }
 
 # ── Swiss Design Palette ─────────────────────────────────────────────────────
@@ -103,6 +104,7 @@ PROJECT_COLORS = {
     "CITRINE": ORANGE,
     "DIAMOND": PURPLE,
     "EMERALD": EMERALD_GREEN,
+    "E2-MLB":  YELLOW,
 }
 
 PROJECT_ICONS = {
@@ -111,6 +113,7 @@ PROJECT_ICONS = {
     "CITRINE": "◇",
     "DIAMOND": "◊",
     "EMERALD": "◈",
+    "E2-MLB":  "◉",
 }
 
 
@@ -613,6 +616,7 @@ STARTING_CAPITAL = {
     "CITRINE": 25_000.0,
     "DIAMOND":  1_000.0,
     "EMERALD":  1_000.0,
+    "E2-MLB":   1_000.0,
 }
 
 
@@ -1140,7 +1144,7 @@ def add_no_cache_headers(response):
     return response
 
 
-ALL_PROJECTS = ["AGATE", "BERYL", "CITRINE", "DIAMOND", "EMERALD"]
+ALL_PROJECTS = ["AGATE", "BERYL", "CITRINE", "DIAMOND", "EMERALD", "E2-MLB"]
 
 app.layout = html.Div([
     dcc.Interval(id="refresh", interval=60_000),
