@@ -104,11 +104,13 @@ _GLOBAL_MIN_CONFIRMATIONS: int | None = None
 
 class BerylPosition:
     """Track an open equity position."""
-    def __init__(self, ticker: str, side: str, size: float, entry_price: float):
+    def __init__(self, ticker: str, side: str, size: float, entry_price: float,
+                 entry_confidence: float = 0.0):
         self.ticker = ticker
         self.side = side
         self.size = size
         self.entry_price = entry_price
+        self.entry_confidence = entry_confidence
         self.entry_time = datetime.now(tz=timezone.utc).isoformat()
         self.notional = size * entry_price
 
@@ -254,6 +256,18 @@ class BerylLiveEngine:
             """)
             conn.commit()
 
+            # Sprint 16: safe migration — add exit_reason + entry_confidence columns
+            for col, col_type, default in [
+                ("exit_reason", "TEXT", "'regime_flip'"),
+                ("entry_confidence", "REAL", "0.0"),
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE trades ADD COLUMN {col} {col_type} DEFAULT {default}")
+                    conn.commit()
+                    log.info(f"[BERYL] Added '{col}' column to trades table")
+                except Exception:
+                    pass  # Column already exists — idempotent
+
     # ── State Restoration ──────────────────────────────────────────────────
 
     def _restore_state_from_db(self) -> None:
@@ -296,6 +310,7 @@ class BerylLiveEngine:
                         side=info.get("side", "BUY"),
                         size=size,
                         entry_price=entry,
+                        entry_confidence=info.get("entry_confidence", 0.0),
                     )
                     # Restore original entry_time (don't overwrite with "now")
                     pos.entry_time = info.get("entry_time", pos.entry_time)
@@ -360,6 +375,7 @@ class BerylLiveEngine:
                     "size": pos.size,
                     "entry_price": pos.entry_price,
                     "entry_time": pos.entry_time,
+                    "entry_confidence": pos.entry_confidence,
                     "notional": pos.notional,
                     "current": current,
                 }
@@ -628,7 +644,8 @@ class BerylLiveEngine:
             return price + slippage  # Worse fill for buys
         return price - slippage  # Worse fill for sells
 
-    def _close_position(self, ticker: str, exit_price: float, confirmations: int) -> float:
+    def _close_position(self, ticker: str, exit_price: float, confirmations: int,
+                        exit_reason: str = "regime_flip") -> float:
         """Close a specific position by ticker. Returns P&L."""
         pos = self.positions.get(ticker)
         if pos is None:
@@ -640,9 +657,12 @@ class BerylLiveEngine:
             pnl -= pos.notional * TAKER_FEE * 2  # Both sides
             pnl_pct = (pnl / pos.notional) * 100
 
-            log.info(f"SELL {pos.ticker}: {pos.size:.2f} shares @ ${fill_price:.2f} | P&L: ${pnl:.2f} ({pnl_pct:.2f}%)")
+            log.info(
+                f"SELL {pos.ticker}: {pos.size:.2f} shares @ ${fill_price:.2f} "
+                f"| P&L: ${pnl:.2f} ({pnl_pct:.2f}%) | reason={exit_reason}"
+            )
 
-            self._log_trade(pos, fill_price, pnl, pnl_pct, confirmations)
+            self._log_trade(pos, fill_price, pnl, pnl_pct, confirmations, exit_reason)
         except Exception as e:
             log.error(f"[BERYL] ERROR: Failed to execute SELL order for {ticker}: {e}")
             return 0.0
@@ -663,8 +683,15 @@ class BerylLiveEngine:
         price = signal["current_price"]
         confidence = signal["confidence"]
 
-        if confidence < 0.70:
-            log.info(f"BUY {ticker} signal but confidence {confidence:.2f} < 0.70. Skipping.")
+        # --- SPRINT 16: PHASE 1 VELOCITY ENTRY GATE ---
+        # Only enter during the 0.60-0.80 velocity band where Gate 3 proved
+        # positive neutralized returns. Below 0.60 is noise; above 0.80 is
+        # structural drift (beta masquerading as alpha).
+        if confidence < 0.60 or confidence > 0.80:
+            log.info(
+                f"  [REJECT] {ticker}: Confidence {confidence:.2f} outside "
+                f"0.60-0.80 velocity band. Avoiding structural drift."
+            )
             return False
 
         if ticker in self.positions:
@@ -684,6 +711,7 @@ class BerylLiveEngine:
                 side="BUY",
                 size=size,
                 entry_price=fill_price,
+                entry_confidence=confidence,
             )
             self.positions[ticker] = pos
 
@@ -711,21 +739,50 @@ class BerylLiveEngine:
         """
         traded = False
 
-        # ── Check if any held positions' tickers went BEAR ──────
+        # ── SPRINT 16: TIME-SERIES EVICTION ENGINE ───────────────
+        # Check confidence degradation BEFORE legacy BEAR/SELL checks.
+        # If confidence drops below 0.60, the time-series edge is dead.
+        # We do NOT wait for a full BEAR regime flip — we evict immediately
+        # to free the capital slot for a fresh velocity signal.
         tickers_to_close = []
         for ticker, pos in list(self.positions.items()):
             pos_signal = next((s for s in signals if s["ticker"] == ticker), None)
 
-            if pos_signal and pos_signal["regime"] == "BEAR":
-                log.info(f"{ticker} regime flipped to BEAR -> closing position")
-                tickers_to_close.append((ticker, pos_signal["current_price"], pos_signal["confirmations"]))
-            elif pos_signal and pos_signal["signal"] == "SELL":
-                log.info(f"{ticker} SELL signal -> closing position")
-                tickers_to_close.append((ticker, pos_signal["current_price"], pos_signal["confirmations"]))
+            if pos_signal is None:
+                continue  # Ticker not in scan — hold, check next cycle
 
-        for ticker, price, confirms in tickers_to_close:
+            current_conf = pos_signal.get("confidence", 1.0)
+            current_regime = pos_signal.get("regime", "CHOP")
+
+            # Priority 1: Confidence degradation eviction
+            if current_conf < 0.60:
+                log.warning(
+                    f"  [EVICTION] {ticker}: Confidence degraded to {current_conf:.2f} "
+                    f"(< 0.60). Time-series edge lost. Liquidating to free capital."
+                )
+                tickers_to_close.append((
+                    ticker, pos_signal["current_price"],
+                    pos_signal["confirmations"], "confidence_degradation"
+                ))
+                continue  # Skip legacy checks — position is being evicted
+
+            # Priority 2: Hard regime flip to BEAR (legacy backup)
+            if current_regime == "BEAR":
+                log.info(f"{ticker} regime flipped to BEAR -> closing position")
+                tickers_to_close.append((
+                    ticker, pos_signal["current_price"],
+                    pos_signal["confirmations"], "bear_regime_flip"
+                ))
+            elif pos_signal["signal"] == "SELL":
+                log.info(f"{ticker} SELL signal -> closing position")
+                tickers_to_close.append((
+                    ticker, pos_signal["current_price"],
+                    pos_signal["confirmations"], "sell_signal"
+                ))
+
+        for ticker, price, confirms, reason in tickers_to_close:
             try:
-                self._close_position(ticker, price, confirms)
+                self._close_position(ticker, price, confirms, exit_reason=reason)
                 traded = True
             except Exception as e:
                 log.error(f"[BERYL] ERROR: Failed to close position {ticker}: {e}")
@@ -752,14 +809,16 @@ class BerylLiveEngine:
 
         return traded
 
-    def _log_trade(self, pos: BerylPosition, exit_price: float, pnl: float, pnl_pct: float, confirmations: int):
+    def _log_trade(self, pos: BerylPosition, exit_price: float, pnl: float, pnl_pct: float,
+                   confirmations: int, exit_reason: str = "regime_flip"):
         """Log completed trade to SQLite."""
         now = datetime.now(tz=timezone.utc).isoformat()
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """INSERT INTO trades
-                (timestamp, ticker, entry_time, exit_time, entry_price, exit_price, side, size, pnl, pnl_pct, signal_strength)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (timestamp, ticker, entry_time, exit_time, entry_price, exit_price,
+                 side, size, pnl, pnl_pct, signal_strength, exit_reason, entry_confidence)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     now,
                     pos.ticker,
@@ -772,6 +831,8 @@ class BerylLiveEngine:
                     round(pnl, 2),
                     round(pnl_pct, 2),
                     confirmations,
+                    exit_reason,
+                    round(pos.entry_confidence, 4),
                 ),
             )
             conn.commit()
@@ -930,8 +991,9 @@ class BerylLiveEngine:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """INSERT INTO trades
-                (timestamp, ticker, entry_time, exit_time, entry_price, exit_price, side, size, pnl, pnl_pct, signal_strength)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (timestamp, ticker, entry_time, exit_time, entry_price, exit_price,
+                 side, size, pnl, pnl_pct, signal_strength, exit_reason, entry_confidence)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     now,
                     pos.ticker,
@@ -944,6 +1006,8 @@ class BerylLiveEngine:
                     round(pnl, 2),
                     round(pnl_pct, 2),
                     0,
+                    "emergency_intraday",
+                    round(pos.entry_confidence, 4),
                 ),
             )
             conn.commit()

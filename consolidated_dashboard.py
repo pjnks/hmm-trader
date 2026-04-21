@@ -428,13 +428,19 @@ def _load_diamond_trades() -> pd.DataFrame:
 
 
 def _load_emerald_trades() -> pd.DataFrame:
-    """Load EMERALD predictions, normalizing schema to match other projects.
+    """Load EMERALD (NBA/E1) predictions, normalizing schema to match other projects.
 
     EMERALD uses pnl (dollars, already correct) and predicted_at (Unix epoch float)
     in its predictions table.  We use predicted_at (when bet was placed) rather than
     resolved_at (when outcome was determined) because games resolve in batches,
     compressing all timestamps into a few hours.  predicted_at spreads data across
     the actual decision timeline.
+
+    NBA scope: filters out MLB rows via `game_id NOT LIKE 'mlb_%'`. The
+    predictions table has no `sport` column, and `model_version` is not
+    sport-prefixed (it's `"xgboost_{market}"` for both sports). The stable
+    contract is `game_id`: MLB uses `mlb_<numeric>` (e.g., `mlb_566083`),
+    while NBA uses Odds API hex hashes. Verified against `games.sport` column.
     """
     for candidate in EMERALD_DB_CANDIDATES:
         if candidate.exists():
@@ -444,6 +450,7 @@ def _load_emerald_trades() -> pd.DataFrame:
                         "SELECT market_type, side, pnl, predicted_at "
                         "FROM predictions "
                         "WHERE pnl IS NOT NULL AND resolved_at IS NOT NULL "
+                        "  AND game_id NOT LIKE 'mlb_%' "
                         "ORDER BY predicted_at ASC", conn)
                 if df.empty:
                     return pd.DataFrame()
@@ -455,6 +462,91 @@ def _load_emerald_trades() -> pd.DataFrame:
             except Exception:
                 return pd.DataFrame()
     return pd.DataFrame()
+
+
+def _load_e2_mlb_status() -> dict:
+    """Load E2 (MLB shadow-mode) status from emerald.db predictions table.
+
+    Returns a dict with:
+      predictions_total: int  — total MLB rows
+      predictions_resolved: int — subset with resolved_at set
+      brier_h2h: float | None — mean squared error for resolved h2h predictions
+      brier_spreads: float | None — mean squared error for resolved spreads predictions
+      abstain_rate: float — share of MLB rows with recommended_bet == 0
+      days_in_shadow: int — days since earliest MLB predicted_at
+      first_predicted_at: datetime | None
+      last_predicted_at: datetime | None
+      shadow_mode: bool  — inferred from SUM(recommended_bet) == 0 on MLB rows
+    """
+    empty = {
+        "predictions_total": 0, "predictions_resolved": 0,
+        "brier_h2h": None, "brier_spreads": None,
+        "abstain_rate": 0.0, "days_in_shadow": 0,
+        "first_predicted_at": None, "last_predicted_at": None,
+        "shadow_mode": True,
+    }
+    for candidate in EMERALD_DB_CANDIDATES:
+        if not candidate.exists():
+            continue
+        try:
+            with sqlite3.connect(str(candidate)) as conn:
+                row = conn.execute(
+                    "SELECT COUNT(*), "
+                    "       SUM(CASE WHEN resolved_at IS NOT NULL THEN 1 ELSE 0 END), "
+                    "       SUM(CASE WHEN COALESCE(recommended_bet, 0) = 0 THEN 1 ELSE 0 END), "
+                    "       COALESCE(SUM(recommended_bet), 0), "
+                    "       MIN(predicted_at), "
+                    "       MAX(predicted_at) "
+                    "FROM predictions "
+                    "WHERE game_id LIKE 'mlb_%'"
+                ).fetchone()
+            total, resolved, abstained, bet_sum, first_ts, last_ts = row or (0, 0, 0, 0.0, None, None)
+            total = int(total or 0)
+            if total == 0:
+                return empty
+            resolved = int(resolved or 0)
+            abstained = int(abstained or 0)
+            abstain_rate = abstained / total
+
+            brier_h2h = brier_spreads = None
+            if resolved > 0:
+                with sqlite3.connect(str(candidate)) as conn:
+                    brier_rows = conn.execute(
+                        "SELECT market_type, AVG((predicted_prob - outcome) * (predicted_prob - outcome)) "
+                        "FROM predictions "
+                        "WHERE game_id LIKE 'mlb_%' "
+                        "  AND resolved_at IS NOT NULL "
+                        "  AND outcome IS NOT NULL "
+                        "GROUP BY market_type"
+                    ).fetchall()
+                for mt, brier in brier_rows:
+                    if brier is None:
+                        continue
+                    if mt == "h2h":
+                        brier_h2h = float(brier)
+                    elif mt == "spreads":
+                        brier_spreads = float(brier)
+
+            first_dt = pd.to_datetime(first_ts, unit="s", utc=True) if first_ts else None
+            last_dt = pd.to_datetime(last_ts, unit="s", utc=True) if last_ts else None
+            days_in_shadow = 0
+            if first_dt is not None:
+                days_in_shadow = int((datetime.now(tz=timezone.utc) - first_dt.to_pydatetime()).total_seconds() // 86400)
+
+            return {
+                "predictions_total": total,
+                "predictions_resolved": resolved,
+                "brier_h2h": brier_h2h,
+                "brier_spreads": brier_spreads,
+                "abstain_rate": abstain_rate,
+                "days_in_shadow": days_in_shadow,
+                "first_predicted_at": first_dt,
+                "last_predicted_at": last_dt,
+                "shadow_mode": float(bet_sum or 0.0) == 0.0,
+            }
+        except Exception:
+            return empty
+    return empty
 
 
 def _load_emerald_bankroll() -> pd.DataFrame:
@@ -1112,6 +1204,135 @@ def _unified_panel(project: str, metrics: dict, status: dict | None = None,
     ], className=f"bento-card anim-{anim}")
 
 
+# Flip-to-live kill criteria (from emerald Phase 3 plan, 2026-04-16)
+MLB_FLIP_THRESHOLD = 200          # resolved predictions required
+MLB_BRIER_GATE_H2H = 0.245
+MLB_BRIER_GATE_SPREADS = 0.225
+MLB_ABSTAIN_GATE = 0.50
+
+
+def _e2_mlb_panel(status: dict, anim: int = 6) -> html.Div:
+    """Shadow-mode panel for E2 (MLB). Substitutes shadow-specific rows for the
+    INDEX/P&L/WIN RATE layout used by live projects.
+
+    Auto-switches to the live `_unified_panel()` layout once MLB flips live —
+    the caller chooses which renderer to invoke based on `status["shadow_mode"]`.
+    """
+    project = "E2-MLB"
+    color = PROJECT_COLORS.get(project, TEXT)
+    icon = PROJECT_ICONS.get(project, "◉")
+
+    total = int(status.get("predictions_total", 0) or 0)
+    resolved = int(status.get("predictions_resolved", 0) or 0)
+    brier_h2h = status.get("brier_h2h")
+    brier_spreads = status.get("brier_spreads")
+    abstain_rate = float(status.get("abstain_rate", 0.0) or 0.0)
+    days_in_shadow = int(status.get("days_in_shadow", 0) or 0)
+    last_dt = status.get("last_predicted_at")
+
+    # Readiness (resolved vs flip threshold)
+    readiness = min(resolved / MLB_FLIP_THRESHOLD, 1.0) if MLB_FLIP_THRESHOLD > 0 else 0.0
+
+    # Badge: SHADOW (yellow) — shadow_mode inferred from recommended_bet sum
+    if status.get("shadow_mode", True):
+        deg_color, deg_label = YELLOW, "SHADOW"
+    else:
+        deg_color, deg_label = GREEN, "LIVE"
+
+    # Notes line — live indicator dot + "MLB PREDICTIONS"
+    dot_color = GREEN if total > 0 else TEXT_DIM
+    notes_line = html.Div([
+        html.Span("● " if total > 0 else "○ ", style={"color": dot_color}),
+        html.Span("MLB PREDICTIONS", style={
+            "color": TEXT_DIM, "fontSize": "0.7rem", "letterSpacing": "0.1em",
+        }),
+    ], style={"marginBottom": "10px", "height": "18px"})
+
+    # Color helpers for Brier vs gate
+    def _brier_color(val, gate):
+        if val is None:
+            return TEXT_MUTED
+        return GREEN if val <= gate else (YELLOW if val <= gate + 0.02 else RED)
+
+    brier_h2h_str = f"{brier_h2h:.3f}" if brier_h2h is not None else "—"
+    brier_spr_str = f"{brier_spreads:.3f}" if brier_spreads is not None else "—"
+
+    last_str = "—"
+    if last_dt is not None and isinstance(last_dt, pd.Timestamp):
+        last_str = last_dt.strftime("%m-%d %H:%M")
+
+    # Shared styles (copied from _unified_panel)
+    _lbl = {"color": TEXT_MUTED, "fontSize": "0.55rem", "letterSpacing": "0.1em",
+            "textTransform": "uppercase", "marginBottom": "2px"}
+    _val = {"fontSize": "1.05rem", "fontWeight": "600", "fontVariantNumeric": "tabular-nums",
+            "lineHeight": "1.2"}
+
+    def _row(l_label, l_val, l_color, r_label, r_val, r_color):
+        return html.Div([
+            html.Div([
+                html.Div(l_label, style=_lbl),
+                html.Div(l_val, style={**_val, "color": l_color}),
+            ], style={"flex": "1", "padding": "3px 4px", "margin": "-3px -4px"}),
+            html.Div([
+                html.Div(r_label, style=_lbl),
+                html.Div(r_val, style={**_val, "color": r_color}),
+            ], style={"flex": "1", "padding": "3px 4px", "margin": "-3px -4px"}),
+        ], style={"display": "flex", "gap": "12px", "marginBottom": "6px"})
+
+    # Color for readiness (warmer as we approach 200)
+    readiness_color = GREEN if readiness >= 0.75 else (YELLOW if readiness >= 0.25 else TEXT_DIM)
+    abstain_color = (
+        GREEN if abstain_rate < MLB_ABSTAIN_GATE else
+        YELLOW if abstain_rate < MLB_ABSTAIN_GATE + 0.15 else
+        RED
+    )
+
+    return html.Div([
+        # Row 0: Header
+        html.Div([
+            html.Span(f"{icon}", style={"color": color, "fontSize": "0.85rem",
+                                         "marginRight": "6px"}),
+            html.Span(project, className="project-name", style={"color": color}),
+            html.Span(deg_label, className="health-badge",
+                      style={"color": deg_color, "borderColor": deg_color,
+                             "marginLeft": "auto"}),
+        ], style={"display": "flex", "alignItems": "center"}),
+
+        html.Div(className="separator"),
+
+        # Row 1: Notes
+        notes_line,
+
+        # Row 2: RESOLVED count + GATE progress
+        _row("RESOLVED", f"{resolved}/{MLB_FLIP_THRESHOLD}", readiness_color,
+             "TOTAL", str(total), TEXT),
+
+        # Row 3: Brier H2H + Brier SPREADS
+        _row("BRIER H2H", brier_h2h_str, _brier_color(brier_h2h, MLB_BRIER_GATE_H2H),
+             "BRIER SPR", brier_spr_str, _brier_color(brier_spreads, MLB_BRIER_GATE_SPREADS)),
+
+        # Row 4: Abstain % + days in shadow
+        _row("ABSTAIN", f"{abstain_rate:.0%}", abstain_color,
+             "SHADOW DAYS", str(days_in_shadow), TEXT),
+
+        # Row 5: Last prediction timestamp
+        html.Div([
+            html.Span("LAST ", style={"color": TEXT_MUTED, "fontSize": "0.55rem",
+                                       "letterSpacing": "0.08em"}),
+            html.Span(last_str, style={"color": TEXT_DIM, "fontSize": "0.6rem",
+                                         "fontVariantNumeric": "tabular-nums"}),
+        ], style={"marginTop": "4px"}),
+
+        # Row 6: Readiness bar (scales with resolved/threshold)
+        html.Div(style={
+            "width": f"{readiness * 100:.0f}%", "height": "2px",
+            "background": readiness_color, "borderRadius": "1px",
+            "marginTop": "8px", "opacity": "0.6",
+        }),
+
+    ], className=f"bento-card anim-{anim}")
+
+
 # ── Dash App ──────────────────────────────────────────────────────────────────
 
 app = dash.Dash(
@@ -1145,6 +1366,11 @@ def add_no_cache_headers(response):
 
 
 ALL_PROJECTS = ["AGATE", "BERYL", "CITRINE", "DIAMOND", "EMERALD", "E2-MLB"]
+# Projects that carry live P&L / Sharpe / win-rate metrics — used for ranking
+# and the combined-metrics row. E2-MLB is shadow-only and rendered via a
+# dedicated panel; ranking it against live metrics would always flag it
+# as "worst" regardless of model quality.
+LIVE_PROJECTS = ["AGATE", "BERYL", "CITRINE", "DIAMOND", "EMERALD"]
 
 app.layout = html.Div([
     dcc.Interval(id="refresh", interval=60_000),
@@ -1322,23 +1548,28 @@ def _update_dashboard_inner(active_filter=None):
         "marginBottom": "10px",
     })
 
-    # Compute best/worst rankings across all 5 projects for key metrics
+    # Compute best/worst rankings across live projects for key metrics.
+    # E2-MLB is excluded — it renders through _e2_mlb_panel with its own
+    # shadow-mode rows (no INDEX/P&L/WIN RATE/SHARPE to rank).
     rank_keys = {
         "index":    lambda m: m.get("index_100", 100.0),
         "pnl":      lambda m: m.get("total_pnl", 0.0),
         "win_rate": lambda m: m.get("win_rate", 0.0),
         "sharpe":   lambda m: m.get("sharpe_20", 0.0),
     }
-    project_highlights: dict[str, dict] = {p: {} for p in ALL_PROJECTS}
+    project_highlights: dict[str, dict] = {p: {} for p in LIVE_PROJECTS}
     for key, fn in rank_keys.items():
-        vals = {p: fn(all_metrics[p]) for p in ALL_PROJECTS}
+        vals = {p: fn(all_metrics[p]) for p in LIVE_PROJECTS}
         best_p = max(vals, key=vals.get)
         worst_p = min(vals, key=vals.get)
         if vals[best_p] != vals[worst_p]:  # skip if all identical
             project_highlights[best_p][key] = "best"
             project_highlights[worst_p][key] = "worst"
 
-    # Row 2: Project panels — 5 uniform panels, auto-wrap
+    # Load E2-MLB shadow status (separate pipeline — no P&L rows)
+    e2_mlb_status = _load_e2_mlb_status()
+
+    # Row 2: Project panels — 5 live + 1 shadow (E2-MLB)
     projects_row = html.Div([
         _unified_panel("AGATE", all_metrics["AGATE"], agate_status,
                        highlights=project_highlights["AGATE"], anim=2),
@@ -1350,9 +1581,10 @@ def _update_dashboard_inner(active_filter=None):
                        highlights=project_highlights["DIAMOND"], anim=5),
         _unified_panel("EMERALD", all_metrics["EMERALD"], {},
                        highlights=project_highlights["EMERALD"], anim=6),
+        _e2_mlb_panel(e2_mlb_status, anim=7),
     ], style={
         "display": "grid",
-        "gridTemplateColumns": "repeat(5, 1fr)",
+        "gridTemplateColumns": "repeat(6, 1fr)",
         "gap": "10px",
         "marginBottom": "10px",
     })

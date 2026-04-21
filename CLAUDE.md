@@ -725,6 +725,14 @@ Where:
   - **Key insight**: HMM IS a time-series regime filter (11/11 wins from detecting WHEN). ISN'T a cross-sectional ranker (cannot tell WHICH asset is better).
   - Remaining file: `backfill_scan_journal.py` (data useful for time-series analysis)
 
+- **Sprint 16 — BERYL Time-Series Eviction Engine + AGATE Suspension** (2026-04-20, DEPLOYED):
+  1. **AGATE SUSPENDED**: `agate-trader` stopped + disabled on VM. Gaussian emission misspecification — crypto kurtosis 8-15x equities makes high-confidence predictions maximally wrong. Requires Student's t-distribution rewrite of `src/hmm_model.py`. Final: 11 trades, 2W/9L, -$463.82.
+  2. **Velocity entry gate**: `_open_position()` confidence gate changed from `< 0.70` to `0.60–0.80` band. Above 0.80 is structural drift (Gate 3 proved ≥0.95 conf = -0.05% neutralized return). Below 0.60 is noise.
+  3. **Confidence degradation eviction**: `process_signals()` checks all held positions' current confidence. If `< 0.60`, evicts immediately with `reason="confidence_degradation"` — does NOT wait for full BEAR regime flip. Legacy BEAR/SELL checks remain as secondary backups.
+  4. **Exit reason taxonomy**: New `exit_reason` column in trades DB. Values: `confidence_degradation` (eviction), `bear_regime_flip` (legacy), `sell_signal` (legacy), `emergency_intraday` (catastrophic). Enables post-hoc analysis of eviction vs hold-to-BEAR P&L.
+  5. **BerylPosition.entry_confidence**: Tracks confidence at entry, persisted in snapshots for restart recovery. Logged to trades DB for entry-vs-exit confidence analysis.
+  - **Holder's Bias cure**: 11/11 win rate is small-N. Without self-degradation exit, positions ride down when macro flips. Eviction forces exits on *edge decay* not *price crash*.
+
 ### CITRINE Optimization & Portfolio Rotation
 - **Per-ticker HMM optimization**: COMPLETE + RE-OPTIMIZED (585 trials across 100 tickers, 82 positive Sharpe — 83%)
   - Top tickers: FER (1.301), MELI (1.170), STX (1.169), CEG (1.122), WBD (0.944), AXON (0.836), TSLA (0.828)
