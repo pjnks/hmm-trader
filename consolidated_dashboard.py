@@ -489,16 +489,23 @@ def _load_e2_mlb_status() -> dict:
         if not candidate.exists():
             continue
         try:
+            # NOTE: MLB predictions are written against the Odds API hex game_id,
+            # NOT against the `mlb_<gamepk>` schedule ID.  The pitcher enrichment
+            # step in /predict?sport=mlb copies pitcher data across the two ID
+            # namespaces but persists rows keyed to the hex IDs.  Therefore
+            # `WHERE game_id LIKE 'mlb_%'` misses every real MLB prediction.
+            # Correct filter is a JOIN to games on game_id + sport='mlb'.
             with sqlite3.connect(str(candidate)) as conn:
                 row = conn.execute(
                     "SELECT COUNT(*), "
-                    "       SUM(CASE WHEN resolved_at IS NOT NULL THEN 1 ELSE 0 END), "
-                    "       SUM(CASE WHEN COALESCE(recommended_bet, 0) = 0 THEN 1 ELSE 0 END), "
-                    "       COALESCE(SUM(recommended_bet), 0), "
-                    "       MIN(predicted_at), "
-                    "       MAX(predicted_at) "
-                    "FROM predictions "
-                    "WHERE game_id LIKE 'mlb_%'"
+                    "       SUM(CASE WHEN p.resolved_at IS NOT NULL THEN 1 ELSE 0 END), "
+                    "       SUM(CASE WHEN COALESCE(p.recommended_bet, 0) = 0 THEN 1 ELSE 0 END), "
+                    "       COALESCE(SUM(p.recommended_bet), 0), "
+                    "       MIN(p.predicted_at), "
+                    "       MAX(p.predicted_at) "
+                    "FROM predictions p "
+                    "JOIN games g ON p.game_id = g.game_id "
+                    "WHERE g.sport = 'mlb'"
                 ).fetchone()
             total, resolved, abstained, bet_sum, first_ts, last_ts = row or (0, 0, 0, 0.0, None, None)
             total = int(total or 0)
@@ -512,12 +519,14 @@ def _load_e2_mlb_status() -> dict:
             if resolved > 0:
                 with sqlite3.connect(str(candidate)) as conn:
                     brier_rows = conn.execute(
-                        "SELECT market_type, AVG((predicted_prob - outcome) * (predicted_prob - outcome)) "
-                        "FROM predictions "
-                        "WHERE game_id LIKE 'mlb_%' "
-                        "  AND resolved_at IS NOT NULL "
-                        "  AND outcome IS NOT NULL "
-                        "GROUP BY market_type"
+                        "SELECT p.market_type, AVG((p.predicted_prob - p.outcome) * (p.predicted_prob - p.outcome)) "
+                        "FROM predictions p "
+                        "JOIN games g ON p.game_id = g.game_id "
+                        "WHERE g.sport = 'mlb' "
+                        "  AND p.resolved_at IS NOT NULL "
+                        "  AND p.outcome IS NOT NULL "
+                        "  AND p.outcome IN (0, 1) "
+                        "GROUP BY p.market_type"
                     ).fetchall()
                 for mt, brier in brier_rows:
                     if brier is None:
@@ -547,6 +556,248 @@ def _load_e2_mlb_status() -> dict:
         except Exception:
             return empty
     return empty
+
+
+def _load_mlb_daily_timeseries() -> pd.DataFrame:
+    """Per-(game_date, market) cumulative MLB shadow telemetry.
+
+    Used by the two MLB-specific shadow charts below.  Rows are cumulative
+    through each date: counts include every prediction with
+    game_date ≤ that row's game_date.  Brier is the running MSE over
+    resolved binary outcomes (0/1) — void/push outcomes are filtered out.
+
+    Columns:
+      game_date          — pd.Timestamp (UTC midnight)
+      market_type        — 'h2h' | 'spreads'
+      n_total_cumul      — predictions made against games on/before this date
+      n_resolved_cumul   — subset with outcome ∈ {0, 1}
+      n_pending_cumul    — n_total - n_resolved
+      brier_cumul        — running Brier; None if n_resolved_cumul == 0
+    """
+    cols = ["game_date", "market_type", "n_total_cumul",
+            "n_resolved_cumul", "n_pending_cumul", "brier_cumul"]
+    for candidate in EMERALD_DB_CANDIDATES:
+        if not candidate.exists():
+            continue
+        try:
+            with sqlite3.connect(str(candidate)) as conn:
+                df = pd.read_sql_query(
+                    "SELECT g.game_date, p.market_type, p.predicted_prob, "
+                    "       p.outcome "
+                    "FROM predictions p "
+                    "JOIN games g ON p.game_id = g.game_id "
+                    "WHERE g.sport = 'mlb' "
+                    "  AND p.market_type IN ('h2h', 'spreads')",
+                    conn,
+                )
+            if df.empty:
+                return pd.DataFrame(columns=cols)
+            df["game_date"] = pd.to_datetime(df["game_date"], utc=True)
+            df["is_resolved"] = df["outcome"].isin([0, 1])
+            df["sq_err"] = np.where(
+                df["is_resolved"],
+                (df["predicted_prob"] - df["outcome"]) ** 2,
+                np.nan,
+            )
+            all_dates = sorted(df["game_date"].unique())
+            rows = []
+            for market in ("h2h", "spreads"):
+                sub = df[df["market_type"] == market]
+                for d in all_dates:
+                    mask = sub["game_date"] <= d
+                    n_total = int(mask.sum())
+                    if n_total == 0:
+                        continue
+                    resolved_mask = mask & sub["is_resolved"]
+                    n_resolved = int(resolved_mask.sum())
+                    brier = (float(sub.loc[resolved_mask, "sq_err"].mean())
+                             if n_resolved > 0 else None)
+                    rows.append({
+                        "game_date": d,
+                        "market_type": market,
+                        "n_total_cumul": n_total,
+                        "n_resolved_cumul": n_resolved,
+                        "n_pending_cumul": n_total - n_resolved,
+                        "brier_cumul": brier,
+                    })
+            return pd.DataFrame(rows, columns=cols)
+        except Exception:
+            continue
+    return pd.DataFrame(columns=cols)
+
+
+def _build_mlb_brier_chart() -> go.Figure:
+    """Cumulative Brier score for MLB H2H + Spreads vs Walk-Forward baselines
+    and kill-gates, per auditor directive.
+
+    Reference lines:
+      - Solid gray  — WF baseline (H2H 0.2436, Spreads 0.2196)
+      - Dashed red  — Kill-gate (H2H 0.245, Spreads 0.225)
+    """
+    df = _load_mlb_daily_timeseries()
+    fig = go.Figure()
+
+    if df.empty:
+        fig.add_annotation(
+            text="No MLB predictions yet — observation clock not started",
+            showarrow=False, xref="paper", yref="paper", x=0.5, y=0.5,
+            font=dict(color=TEXT_DIM, size=10, family="JetBrains Mono, monospace"),
+        )
+    else:
+        h2h = df[df["market_type"] == "h2h"].dropna(subset=["brier_cumul"])
+        spr = df[df["market_type"] == "spreads"].dropna(subset=["brier_cumul"])
+
+        x_min = df["game_date"].min()
+        x_max = df["game_date"].max()
+
+        # Reference lines FIRST so data lines draw on top
+        # H2H WF baseline (solid gray)
+        fig.add_trace(go.Scatter(
+            x=[x_min, x_max], y=[0.2436, 0.2436],
+            mode="lines", line=dict(color="#6a7080", width=1, dash="solid"),
+            name="H2H WF (0.2436)", legendgroup="ref",
+            hoverinfo="skip",
+        ))
+        # Spreads WF baseline (solid gray, slightly dimmer)
+        fig.add_trace(go.Scatter(
+            x=[x_min, x_max], y=[0.2196, 0.2196],
+            mode="lines", line=dict(color="#6a7080", width=1, dash="dot"),
+            name="SPR WF (0.2196)", legendgroup="ref",
+            hoverinfo="skip",
+        ))
+        # H2H kill-gate (dashed red)
+        fig.add_trace(go.Scatter(
+            x=[x_min, x_max], y=[MLB_BRIER_GATE_H2H, MLB_BRIER_GATE_H2H],
+            mode="lines", line=dict(color=RED, width=1, dash="dash"),
+            name=f"H2H kill ({MLB_BRIER_GATE_H2H})", legendgroup="gate",
+            hoverinfo="skip",
+        ))
+        # Spreads kill-gate (dashed red)
+        fig.add_trace(go.Scatter(
+            x=[x_min, x_max], y=[MLB_BRIER_GATE_SPREADS, MLB_BRIER_GATE_SPREADS],
+            mode="lines", line=dict(color=RED, width=1, dash="dashdot"),
+            name=f"SPR kill ({MLB_BRIER_GATE_SPREADS})", legendgroup="gate",
+            hoverinfo="skip",
+        ))
+
+        # Data lines
+        if not h2h.empty:
+            fig.add_trace(go.Scatter(
+                x=h2h["game_date"], y=h2h["brier_cumul"],
+                mode="lines+markers", name="H2H Live",
+                line=dict(color=EMERALD_GREEN, width=2),
+                marker=dict(size=5, color=EMERALD_GREEN),
+                hovertemplate="<b>%{x|%Y-%m-%d}</b><br>H2H Brier: %{y:.4f}<extra></extra>",
+            ))
+        if not spr.empty:
+            fig.add_trace(go.Scatter(
+                x=spr["game_date"], y=spr["brier_cumul"],
+                mode="lines+markers", name="SPR Live",
+                line=dict(color=CYAN, width=2),
+                marker=dict(size=5, color=CYAN),
+                hovertemplate="<b>%{x|%Y-%m-%d}</b><br>Spreads Brier: %{y:.4f}<extra></extra>",
+            ))
+
+    fig.update_layout(
+        title=dict(
+            text="E2-MLB BRIER SCORE  —  CALIBRATION GATE",
+            font=dict(size=9, color=TEXT_DIM, family="JetBrains Mono, monospace"),
+            x=0.02, y=0.97, xanchor="left",
+        ),
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(color=TEXT, family="JetBrains Mono, monospace", size=9),
+        xaxis=dict(gridcolor=BORDER, zerolinecolor=BORDER, showline=False,
+                   tickfont=dict(size=8)),
+        yaxis=dict(gridcolor=BORDER, zerolinecolor=BORDER, showline=False,
+                   title=dict(text="Brier (MSE)",
+                              font=dict(size=9, color=TEXT_DIM)),
+                   tickfont=dict(size=8)),
+        margin=dict(l=50, r=12, t=34, b=28),
+        hovermode="x unified",
+        showlegend=True,
+        legend=dict(
+            x=0.01, y=0.02, xanchor="left", yanchor="bottom",
+            bgcolor="rgba(14,18,26,0.85)", bordercolor=BORDER,
+            borderwidth=1, font=dict(size=8),
+            orientation="h",
+        ),
+    )
+    return fig
+
+
+def _build_mlb_volume_chart() -> go.Figure:
+    """Stacked bar per game_date: Resolved (green) + Pending (dim) cumulative.
+
+    Per auditor directive: cumulative from start of observation (not rolling
+    window), so the trajectory toward N=200 is visually explicit.  The
+    dashed yellow horizontal line marks the flip threshold.
+    """
+    df = _load_mlb_daily_timeseries()
+    fig = go.Figure()
+
+    if df.empty:
+        fig.add_annotation(
+            text="No MLB predictions yet",
+            showarrow=False, xref="paper", yref="paper", x=0.5, y=0.5,
+            font=dict(color=TEXT_DIM, size=10, family="JetBrains Mono, monospace"),
+        )
+    else:
+        # Roll H2H + Spreads into a single per-date total.  Each market_type
+        # row for a given date has identical cumulative semantics but counts
+        # only that market, so we sum the counts.
+        totals = (df.groupby("game_date")[
+                      ["n_resolved_cumul", "n_pending_cumul", "n_total_cumul"]]
+                    .sum().reset_index())
+
+        fig.add_trace(go.Bar(
+            x=totals["game_date"], y=totals["n_resolved_cumul"],
+            name="Resolved", marker_color=EMERALD_GREEN,
+            hovertemplate="<b>%{x|%Y-%m-%d}</b><br>"
+                          "Resolved: %{y}<extra></extra>",
+        ))
+        fig.add_trace(go.Bar(
+            x=totals["game_date"], y=totals["n_pending_cumul"],
+            name="Pending", marker_color="#4a5060",
+            hovertemplate="<b>%{x|%Y-%m-%d}</b><br>"
+                          "Pending: %{y}<extra></extra>",
+        ))
+
+        # N=200 target line (dashed yellow)
+        x_min = totals["game_date"].min()
+        x_max = totals["game_date"].max()
+        fig.add_trace(go.Scatter(
+            x=[x_min, x_max],
+            y=[MLB_FLIP_THRESHOLD, MLB_FLIP_THRESHOLD],
+            mode="lines", line=dict(color=YELLOW, width=1.2, dash="dash"),
+            name=f"N={MLB_FLIP_THRESHOLD}", hoverinfo="skip",
+        ))
+
+    fig.update_layout(
+        title=dict(
+            text="E2-MLB PREDICTION VOLUME  —  MARCH TO N=200",
+            font=dict(size=9, color=TEXT_DIM, family="JetBrains Mono, monospace"),
+            x=0.02, y=0.97, xanchor="left",
+        ),
+        barmode="stack",
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(color=TEXT, family="JetBrains Mono, monospace", size=9),
+        xaxis=dict(gridcolor=BORDER, zerolinecolor=BORDER, showline=False,
+                   tickfont=dict(size=8)),
+        yaxis=dict(gridcolor=BORDER, zerolinecolor=BORDER, showline=False,
+                   title=dict(text="Cumulative Preds",
+                              font=dict(size=9, color=TEXT_DIM)),
+                   tickfont=dict(size=8)),
+        margin=dict(l=50, r=12, t=34, b=28),
+        hovermode="x unified",
+        showlegend=True,
+        legend=dict(
+            x=0.01, y=0.98, xanchor="left", yanchor="top",
+            bgcolor="rgba(14,18,26,0.85)", bordercolor=BORDER,
+            borderwidth=1, font=dict(size=8),
+            orientation="h",
+        ),
+    )
+    return fig
 
 
 def _load_emerald_bankroll() -> pd.DataFrame:
@@ -1635,6 +1886,38 @@ def _update_dashboard_inner(active_filter=None):
         "marginBottom": "10px",
     })
 
+    # Row 4b: E2-MLB shadow-mode charts (read-only observability for the
+    # N=200 observation window).  Deliberately separate from the live-capital
+    # rollups above to avoid visual bleed between theoretical and real P&L.
+    # Left card: Brier calibration vs WF baseline + kill-gate.
+    # Right card: resolved/pending stacked bar marching toward N=200.
+    mlb_shadow_row = html.Div([
+        html.Div([
+            html.Div(
+                dcc.Graph(id="mlb-brier-chart",
+                          figure=_build_mlb_brier_chart(),
+                          config={"displayModeBar": False},
+                          style={"height": "280px"}),
+                className="chart-container",
+            ),
+        ], className="bento-card anim-8", style={"gridColumn": "span 6"}),
+
+        html.Div([
+            html.Div(
+                dcc.Graph(id="mlb-volume-chart",
+                          figure=_build_mlb_volume_chart(),
+                          config={"displayModeBar": False},
+                          style={"height": "280px"}),
+                className="chart-container",
+            ),
+        ], className="bento-card anim-8", style={"gridColumn": "span 6"}),
+    ], style={
+        "display": "grid",
+        "gridTemplateColumns": "repeat(12, 1fr)",
+        "gap": "10px",
+        "marginBottom": "10px",
+    })
+
     # Row 5: Model health + timestamp
     bottom_row = html.Div([
         html.Div([
@@ -1686,7 +1969,8 @@ def _update_dashboard_inner(active_filter=None):
         "marginBottom": "10px",
     })
 
-    return [metrics_row, projects_row, charts_row, metrics_time_row, bottom_row]
+    return [metrics_row, projects_row, charts_row, metrics_time_row,
+            mlb_shadow_row, bottom_row]
 
 
 # ── Filter Callbacks ─────────────────────────────────────────────────────────

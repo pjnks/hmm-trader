@@ -732,6 +732,25 @@ Where:
   4. **Exit reason taxonomy**: New `exit_reason` column in trades DB. Values: `confidence_degradation` (eviction), `bear_regime_flip` (legacy), `sell_signal` (legacy), `emergency_intraday` (catastrophic). Enables post-hoc analysis of eviction vs hold-to-BEAR P&L.
   5. **BerylPosition.entry_confidence**: Tracks confidence at entry, persisted in snapshots for restart recovery. Logged to trades DB for entry-vs-exit confidence analysis.
   - **Holder's Bias cure**: 11/11 win rate is small-N. Without self-degradation exit, positions ride down when macro flips. Eviction forces exits on *edge decay* not *price crash*.
+  - **First live test (2026-04-21 05:37 UTC scan, T+24h)**: 98/98 converged, 29 BUY signals generated. Confidence distribution: only ~2 of 29 BUYs in 0.60–0.80 velocity band (SNPS 0.70, ZS 0.74); ~27 of 29 in structural drift zone (0.80-1.00). **~93% rejection rate** — velocity gate validated as correctly filtering adverse selection. No new entries (MAX_POSITIONS=3 already filled). No evictions (all held confidences >0.60).
+  - **Current state (2026-04-22 T+48h)**: HON 0.98 (-1.77%), MELI 0.83 (+1.50%), MNST 0.97 (+2.77%). Zero evictions fired.
+  - **Known gap**: `[EVICTION]` log line does NOT propagate to Pushover. Notifier fires generic "SELL" push. `exit_reason='confidence_degradation'` only visible via DB query. Deferred to Sprint 17 cleanup.
+
+- **CITRINE Shadow Tracker Grinold A/B (2026-04-22, preliminary findings)**:
+  - Shadow tracker crossed N≥50 threshold for statistical analysis — 253 total trades, 119 closed with P&L, date range 2026-04-02 → 2026-04-21 (20 days post-Sprint-11).
+  - **Cohort split via `live_would_enter` flag**:
+    | Cohort | N | WR | Total P&L | Avg/trade | IR proxy |
+    |--------|---|------|-----------|-----------|----------|
+    | live_would_enter=1 (strict 0.90 conf, 3d persist) | 11 | 54.5% | +$38.46 | +$3.50 | 0.299 |
+    | shadow_only (relaxed 0.70 conf, 1d persist) | 108 | 57.4% | +$242.04 | +$2.24 | **1.538** |
+  - **Finding**: Relaxed cohort shows **5.2× higher IR** via √Breadth multiplier (Grinold's Law IR = IC × √N). Relaxed per-trade edge 36% smaller but ~10× the trade count compensates.
+  - **Caveat**: Strict cohort N=11 is below significance. Wilson 95% CI for 54.5%@N=11 spans [28%, 78%] — cannot confidently distinguish from coin flip. Need 4-8 more weeks of strict data before recommending live threshold change.
+  - **Live exit reason decomposition** (Sprint 9 instrumentation, 93+20+7 = 120 explained trades):
+    - regime_flip: 93 trades, **+$732.14** (+$7.87/trade) — patient HMM-confirmed exits profitable
+    - trailing_stop: 20 trades, -$362.39 (-$18.12/trade) — Chandelier cutting winners early
+    - catastrophe_stop: 7 trades, -$302.62 (-$43.23/trade) — hard -2% intraday
+    - (null pre-Sprint-9): 61 trades, ~-$574
+  - **Status**: Findings reported to user. No code changes. Awaiting user directive on whether to formalize Wilson CI test or continue accumulating strict-cohort data.
 
 ### CITRINE Optimization & Portfolio Rotation
 - **Per-ticker HMM optimization**: COMPLETE + RE-OPTIMIZED (585 trials across 100 tickers, 82 positive Sharpe — 83%)
