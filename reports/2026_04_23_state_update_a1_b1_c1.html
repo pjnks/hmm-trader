@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>State Update · A1 / B1 / C1 · 2026-04-23</title>
+<style>
+  :root {
+    --neon-green: #00ff9f;
+    --neon-cyan: #00f0ff;
+    --neon-pink: #ff2d6b;
+    --neon-yellow: #ffe156;
+    --neon-violet: #b377ff;
+    --dark-bg: #030508;
+    --panel: #0a1520;
+    --panel-2: #0e1c2b;
+    --border: #1a3040;
+    --text: #d0eaf5;
+    --dim: #8ab4c8;
+    --muted: #5a7c8f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--dark-bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Mono", Menlo, monospace;
+    margin: 0;
+    padding: 32px 16px;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  h1 {
+    font-size: 26px;
+    margin: 0 0 4px 0;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+  }
+  h1 .accent { color: var(--neon-cyan); }
+  .subtitle {
+    color: var(--dim);
+    font-size: 13px;
+    margin-bottom: 28px;
+    letter-spacing: 0.5px;
+  }
+  h2 {
+    font-size: 17px;
+    margin: 36px 0 14px 0;
+    font-weight: 500;
+    color: var(--neon-cyan);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 6px;
+    letter-spacing: 0.3px;
+  }
+  h3 {
+    font-size: 14px;
+    margin: 18px 0 10px 0;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+  }
+  .panel.green-accent { border-left: 3px solid var(--neon-green); }
+  .panel.cyan-accent { border-left: 3px solid var(--neon-cyan); }
+  .panel.pink-accent { border-left: 3px solid var(--neon-pink); }
+  .panel.yellow-accent { border-left: 3px solid var(--neon-yellow); }
+  .panel.violet-accent { border-left: 3px solid var(--neon-violet); }
+  .chip {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin-right: 6px;
+  }
+  .chip.live { background: rgba(0,255,159,0.12); color: var(--neon-green); border: 1px solid var(--neon-green); }
+  .chip.suspended { background: rgba(255,45,107,0.12); color: var(--neon-pink); border: 1px solid var(--neon-pink); }
+  .chip.caution { background: rgba(255,225,86,0.12); color: var(--neon-yellow); border: 1px solid var(--neon-yellow); }
+  .chip.info { background: rgba(0,240,255,0.12); color: var(--neon-cyan); border: 1px solid var(--neon-cyan); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin: 8px 0 4px 0;
+  }
+  th, td {
+    text-align: left;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    color: var(--dim);
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    background: var(--panel-2);
+  }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; font-family: "SF Mono", monospace; }
+  .pos { color: var(--neon-green); }
+  .neg { color: var(--neon-pink); }
+  .neutral { color: var(--dim); }
+  ul { padding-left: 20px; margin: 6px 0; }
+  li { margin: 4px 0; }
+  .bar-row { display: flex; align-items: center; margin: 6px 0; font-size: 12px; }
+  .bar-label { width: 160px; color: var(--dim); flex-shrink: 0; }
+  .bar-track { flex: 1; height: 22px; background: var(--panel-2); border-radius: 3px; position: relative; overflow: hidden; }
+  .bar-fill { height: 100%; display: flex; align-items: center; padding: 0 8px; color: var(--dark-bg); font-weight: 600; font-size: 11px; }
+  .bar-value { margin-left: 10px; width: 90px; text-align: right; font-variant-numeric: tabular-nums; }
+  .metric-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin: 12px 0;
+  }
+  .metric {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+  }
+  .metric .label { color: var(--muted); font-size: 10px; letter-spacing: 0.7px; text-transform: uppercase; }
+  .metric .value { font-size: 20px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .tldr-box {
+    background: linear-gradient(180deg, rgba(0,240,255,0.04) 0%, rgba(0,240,255,0) 100%);
+    border: 1px solid var(--neon-cyan);
+    border-radius: 6px;
+    padding: 16px 20px;
+    margin-bottom: 24px;
+  }
+  .tldr-box li { color: var(--text); font-size: 13px; margin: 8px 0; }
+  .callout {
+    background: rgba(255,45,107,0.08);
+    border-left: 3px solid var(--neon-pink);
+    padding: 12px 16px;
+    margin: 16px 0;
+    font-size: 13px;
+    border-radius: 0 4px 4px 0;
+  }
+  .callout.yellow {
+    background: rgba(255,225,86,0.06);
+    border-left-color: var(--neon-yellow);
+  }
+  .callout.green {
+    background: rgba(0,255,159,0.06);
+    border-left-color: var(--neon-green);
+  }
+  .footer-note {
+    color: var(--muted);
+    font-size: 11px;
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    letter-spacing: 0.3px;
+  }
+  code {
+    background: var(--panel-2);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--neon-cyan);
+    font-size: 12px;
+    font-family: "SF Mono", monospace;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- HEADER -->
+<h1><span class="accent">STATE UPDATE</span> · A1 / B1 / C1</h1>
+<div class="subtitle">
+  2026-04-23 · Portfolio snapshot across trading-core sub-projects · Data source: Oracle VM (129.158.40.51) · Hands-off observation window active
+</div>
+
+<!-- TL;DR -->
+<div class="tldr-box">
+  <h3 style="color: var(--neon-cyan); margin-top: 0;">TL;DR</h3>
+  <ul>
+    <li><strong>AGATE</strong>: Suspended. Final tally <strong>−$579.61</strong> (12 trades, 2W/10L). ETH on Apr 20 added another <strong>−$115.79</strong> before service stop. Awaiting Student's t rewrite of <code>hmm_model.py</code>.</li>
+    <li><strong>BERYL</strong>: Sprint 16 live. Engine working as designed — <strong>12 closed trades, 11W/1L (91.7% WR), +$303.38</strong>. MNST scratch exit fired Apr 22 (first loss). Currently 2 open positions, equity <strong>$9,963.77</strong>.</li>
+    <li><strong>CITRINE</strong>: 189 closed trades, 38.6% WR, realized <strong>−$531.85</strong>. Live equity <strong>$24,449.02</strong> across 14 positions. <code>regime_flip</code> exits net <strong>+$707.87</strong>; stops harvest tail losers (−$665.01 combined).</li>
+    <li><strong>Grinold A/B update</strong>: Strict cohort grew from N=11 → N=13 (+2 losers). WR collapsed 54.5% → 46.2%. Gap between strict and relaxed avg P&L closed to $2.07 vs $2.21 — both now below the $2.34 friction hurdle.</li>
+    <li><strong>Sprint 17 queued</strong>: Inject <code>TAKER_FEE</code> + <code>_apply_slippage()</code> into <code>ShadowTracker._log_shadow_trade</code>. Activates post-72h hands-off protocol.</li>
+  </ul>
+</div>
+
+<!-- PORTFOLIO TOTALS -->
+<h2>Portfolio — Hub Level</h2>
+<div class="metric-grid">
+  <div class="metric">
+    <div class="label">Combined Equity</div>
+    <div class="value neutral">$34,412.79</div>
+  </div>
+  <div class="metric">
+    <div class="label">Combined Realized P&L</div>
+    <div class="value neg">−$808.08</div>
+  </div>
+  <div class="metric">
+    <div class="label">Open Positions</div>
+    <div class="value neutral">16</div>
+  </div>
+  <div class="metric">
+    <div class="label">Active Traders</div>
+    <div class="value pos">2 / 3</div>
+  </div>
+</div>
+
+<h3>Realized P&amp;L by Project</h3>
+<div class="bar-row">
+  <div class="bar-label">AGATE (A1)</div>
+  <div class="bar-track"><div class="bar-fill" style="width: 68%; background: var(--neon-pink);">−$579.61</div></div>
+  <div class="bar-value neg">12 trades</div>
+</div>
+<div class="bar-row">
+  <div class="bar-label">BERYL (B1)</div>
+  <div class="bar-track"><div class="bar-fill" style="width: 36%; background: var(--neon-green);">+$303.38</div></div>
+  <div class="bar-value pos">12 trades</div>
+</div>
+<div class="bar-row">
+  <div class="bar-label">CITRINE (C1)</div>
+  <div class="bar-track"><div class="bar-fill" style="width: 62%; background: var(--neon-pink);">−$531.85</div></div>
+  <div class="bar-value neg">189 trades</div>
+</div>
+
+<!-- AGATE ============================================================= -->
+<h2>A1 — AGATE (Crypto 14-Ticker) <span class="chip suspended">SUSPENDED</span></h2>
+<div class="panel pink-accent">
+  <div class="metric-grid">
+    <div class="metric">
+      <div class="label">Realized P&L</div>
+      <div class="value neg">−$579.61</div>
+    </div>
+    <div class="metric">
+      <div class="label">Closed Trades</div>
+      <div class="value neutral">12</div>
+    </div>
+    <div class="metric">
+      <div class="label">Win Rate</div>
+      <div class="value neg">16.7% (2W / 10L)</div>
+    </div>
+    <div class="metric">
+      <div class="label">Live Duration</div>
+      <div class="value neutral">24 days</div>
+    </div>
+  </div>
+
+  <h3>Closed Trade Ladder · 2026-03-28 → 2026-04-20</h3>
+  <table>
+    <tr><th>Ticker</th><th>Entry</th><th>Exit</th><th>P&amp;L</th><th>%</th><th>Held</th></tr>
+    <tr><td>ENA</td><td class="num">0.1001</td><td class="num">0.0899</td><td class="num neg">−254.75</td><td class="num neg">−10.18%</td><td class="num">1d</td></tr>
+    <tr><td>BCH</td><td class="num">481.20</td><td class="num">451.89</td><td class="num neg">−152.44</td><td class="num neg">−6.09%</td><td class="num">1d</td></tr>
+    <tr><td>SUI</td><td class="num">0.8508</td><td class="num">0.8491</td><td class="num neg">−5.00</td><td class="num neg">−0.20%</td><td class="num">0d</td></tr>
+    <tr><td>BCH</td><td class="num">452.79</td><td class="num">465.90</td><td class="num pos">+72.46</td><td class="num pos">+2.90%</td><td class="num">2d</td></tr>
+    <tr><td>HBAR</td><td class="num">0.0901</td><td class="num">0.0899</td><td class="num neg">−5.00</td><td class="num neg">−0.20%</td><td class="num">1d</td></tr>
+    <tr><td>SUI</td><td class="num">0.8809</td><td class="num">0.8691</td><td class="num neg">−33.38</td><td class="num neg">−1.33%</td><td class="num">5d</td></tr>
+    <tr><td>LINK</td><td class="num">9.2993</td><td class="num">8.8511</td><td class="num neg">−120.60</td><td class="num neg">−4.82%</td><td class="num">1d</td></tr>
+    <tr><td>SUI</td><td class="num">0.9109</td><td class="num">0.9291</td><td class="num pos">+49.89</td><td class="num pos">+1.99%</td><td class="num">1d</td></tr>
+    <tr><td>SOL</td><td class="num">83.42</td><td class="num">83.26</td><td class="num neg">−5.00</td><td class="num neg">−0.20%</td><td class="num">0d</td></tr>
+    <tr><td>LINK</td><td class="num">9.0791</td><td class="num">9.0609</td><td class="num neg">−5.00</td><td class="num neg">−0.20%</td><td class="num">0d</td></tr>
+    <tr><td>BCH</td><td class="num">439.10</td><td class="num">438.22</td><td class="num neg">−5.00</td><td class="num neg">−0.20%</td><td class="num">0d</td></tr>
+    <tr><td>ETH</td><td class="num">2372.47</td><td class="num">2262.70</td><td class="num neg">−115.79</td><td class="num neg">−4.63%</td><td class="num">6d</td></tr>
+  </table>
+
+  <div class="callout">
+    <strong>Kill diagnosis</strong> — Gaussian emission misspecification. Crypto log-return kurtosis is 8–15× that of equities; <code>GaussianHMM</code>'s assumption of Gaussian emissions makes high-confidence posteriors structurally unreliable on heavy-tailed data. High confidence = model maximally wrong about distribution shape. 10 of 12 trades were losers; two winners (BCH +$72, SUI +$49) were indistinguishable from noise at P&amp;L scale.
+  </div>
+  <div class="callout yellow">
+    <strong>Resumption gate</strong> — rewrite <code>src/hmm_model.py</code> with Student's t-distribution emissions (degrees-of-freedom parameter captured per-state, not Gaussian σ). No ETA. Engineering debt is material: hmmlearn does not support t-HMMs natively — requires custom M-step with gamma auxiliary variables.
+  </div>
+</div>
+
+<!-- BERYL ============================================================= -->
+<h2>B1 — BERYL (98-Ticker NDX Rotation) <span class="chip live">LIVE · SPRINT 16</span></h2>
+<div class="panel green-accent">
+  <div class="metric-grid">
+    <div class="metric">
+      <div class="label">Realized P&L</div>
+      <div class="value pos">+$303.38</div>
+    </div>
+    <div class="metric">
+      <div class="label">Win Rate</div>
+      <div class="value pos">91.7% (11W/1L)</div>
+    </div>
+    <div class="metric">
+      <div class="label">Equity (Apr 22)</div>
+      <div class="value neutral">$9,963.77</div>
+    </div>
+    <div class="metric">
+      <div class="label">Open Positions</div>
+      <div class="value neutral">2</div>
+    </div>
+  </div>
+
+  <h3>Open Positions</h3>
+  <table>
+    <tr><th>Ticker</th><th>Entry</th><th>Current</th><th>Notional</th><th>Unrealized</th><th>Entry Conf</th></tr>
+    <tr><td>HON</td><td class="num">$233.87</td><td class="num">$222.22</td><td class="num">$833.00</td><td class="num neg">−$41.48 (−4.98%)</td><td class="num">0.98</td></tr>
+    <tr><td>MELI</td><td class="num">$1,842.50</td><td class="num">$1,854.18</td><td class="num">$833.00</td><td class="num pos">+$5.25 (+0.63%)</td><td class="num">0.83</td></tr>
+  </table>
+
+  <h3>Sprint 16 Engine Validation — First Live Data</h3>
+  <div class="bar-row">
+    <div class="bar-label">BUY signals generated</div>
+    <div class="bar-track"><div class="bar-fill" style="width: 100%; background: var(--neon-cyan);">29</div></div>
+    <div class="bar-value neutral">100%</div>
+  </div>
+  <div class="bar-row">
+    <div class="bar-label">&gt;0.80 conf (rejected)</div>
+    <div class="bar-track"><div class="bar-fill" style="width: 93%; background: var(--neon-pink);">27</div></div>
+    <div class="bar-value neg">93.1%</div>
+  </div>
+  <div class="bar-row">
+    <div class="bar-label">0.60–0.80 velocity band</div>
+    <div class="bar-track"><div class="bar-fill" style="width: 7%; background: var(--neon-green);">2</div></div>
+    <div class="bar-value pos">6.9%</div>
+  </div>
+
+  <div class="callout green">
+    <strong>MNST scratch exit (Apr 22)</strong> — MNST closed at −$0.12 (−0.01%) after being held at 0.97 confidence. This is the first material "loss" the strategy has printed. Under the legacy rule (exit on BEAR flip), this would likely have rolled into a larger drawdown; the engine exited on confidence degradation before price damage accumulated. <strong>Semantically this is the eviction mechanism working, not failing.</strong>
+  </div>
+
+  <div class="callout yellow">
+    <strong>HON drawdown watch</strong> — −4.98% unrealized on HON at 0.98 entry confidence. If confidence decays below 0.60 before recovery, the eviction gate will fire and lock the loss. This is the first structural-drift entry we'll observe through a full cycle. No action required; this is the engine's designed behavior.
+  </div>
+</div>
+
+<!-- CITRINE =========================================================== -->
+<h2>C1 — CITRINE (100-Ticker NDX Portfolio) <span class="chip live">LIVE</span></h2>
+<div class="panel yellow-accent">
+  <div class="metric-grid">
+    <div class="metric">
+      <div class="label">Live Equity</div>
+      <div class="value neutral">$24,449.02</div>
+    </div>
+    <div class="metric">
+      <div class="label">Realized P&L</div>
+      <div class="value neg">−$531.85</div>
+    </div>
+    <div class="metric">
+      <div class="label">Win Rate</div>
+      <div class="value neg">38.6% (73/189)</div>
+    </div>
+    <div class="metric">
+      <div class="label">Open Positions</div>
+      <div class="value neutral">14</div>
+    </div>
+  </div>
+
+  <h3>Exit Reason Decomposition (Sprint 9 Instrumentation)</h3>
+  <div class="bar-row">
+    <div class="bar-label">regime_flip (N=101)</div>
+    <div class="bar-track"><div class="bar-fill" style="width: 75%; background: var(--neon-green);">+$707.87 (avg +$7.01)</div></div>
+    <div class="bar-value pos">53.4%</div>
+  </div>
+  <div class="bar-row">
+    <div class="bar-label">(null, pre-Sprint 9) N=61</div>
+    <div class="bar-track"><div class="bar-fill" style="width: 61%; background: var(--muted);">−$574.71 (avg −$9.42)</div></div>
+    <div class="bar-value neg">32.3%</div>
+  </div>
+  <div class="bar-row">
+    <div class="bar-label">trailing_stop (N=20)</div>
+    <div class="bar-track"><div class="bar-fill" style="width: 38%; background: var(--neon-pink);">−$362.39 (avg −$18.12)</div></div>
+    <div class="bar-value neg">10.6%</div>
+  </div>
+  <div class="bar-row">
+    <div class="bar-label">catastrophe_stop (N=7)</div>
+    <div class="bar-track"><div class="bar-fill" style="width: 32%; background: var(--neon-pink);">−$302.62 (avg −$43.23)</div></div>
+    <div class="bar-value neg">3.7%</div>
+  </div>
+
+  <div class="callout">
+    <strong>Structural interpretation</strong> — The HMM-confirmed exits (<code>regime_flip</code>) are net positive; the risk engine's tail-truncation stops (<code>trailing_stop</code> + <code>catastrophe_stop</code>) harvest losers at locally poor prices. This is the insurance premium, not an alpha drag — the mandate is to truncate the left tail of the P&amp;L distribution, not to generate expectancy on its own.
+  </div>
+
+  <h3>Current Holdings (14)</h3>
+  <table>
+    <tr><th>Ticker</th><th>Last Price</th><th>Ticker</th><th>Last Price</th></tr>
+    <tr><td>NVDA</td><td class="num">$202.50</td><td>LRCX</td><td class="num">$265.55</td></tr>
+    <tr><td>MSFT</td><td class="num">$432.92</td><td>GOOGL</td><td class="num">$339.32</td></tr>
+    <tr><td>ADBE</td><td class="num">$255.94</td><td>FANG</td><td class="num">$193.87</td></tr>
+    <tr><td>VRSK</td><td class="num">$178.89</td><td>WMT</td><td class="num">$129.98</td></tr>
+    <tr><td>CSCO</td><td class="num">$89.80</td><td>FER</td><td class="num">$69.93</td></tr>
+    <tr><td>CTSH</td><td class="num">$58.81</td><td>MDLZ</td><td class="num">$56.06</td></tr>
+    <tr><td>PYPL</td><td class="num">$51.22</td><td>KDP</td><td class="num">$26.54</td></tr>
+  </table>
+</div>
+
+<!-- SHADOW TRACKER GRINOLD A/B ======================================== -->
+<h2>Shadow Tracker — Grinold A/B Update</h2>
+<div class="panel violet-accent">
+
+  <div class="metric-grid">
+    <div class="metric">
+      <div class="label">Total Shadow Events</div>
+      <div class="value neutral">263</div>
+    </div>
+    <div class="metric">
+      <div class="label">Closed (w/ P&L)</div>
+      <div class="value neutral">124</div>
+    </div>
+    <div class="metric">
+      <div class="label">Gross Shadow P&L</div>
+      <div class="value pos">+$271.91</div>
+    </div>
+    <div class="metric">
+      <div class="label">Avg / Trade (gross)</div>
+      <div class="value neutral">+$2.19</div>
+    </div>
+  </div>
+
+  <h3>Cohort Split</h3>
+  <table>
+    <tr><th>Cohort</th><th>N</th><th>WR</th><th>Total P&amp;L</th><th>Avg/Trade</th><th>Δ vs Handoff</th></tr>
+    <tr>
+      <td><strong>Strict</strong> (0.90 conf, 3d persist)<br><span style="color: var(--dim); font-size: 11px;">live_would_enter = 1</span></td>
+      <td class="num">13</td>
+      <td class="num neg">46.2%</td>
+      <td class="num pos">+$26.90</td>
+      <td class="num pos">+$2.07</td>
+      <td class="num neg">WR −8.3pp, N +2 (both losers)</td>
+    </tr>
+    <tr>
+      <td><strong>Relaxed</strong> (0.70 conf, 1d persist)<br><span style="color: var(--dim); font-size: 11px;">live_would_enter = 0</span></td>
+      <td class="num">111</td>
+      <td class="num pos">57.7%</td>
+      <td class="num pos">+$245.01</td>
+      <td class="num pos">+$2.21</td>
+      <td class="num neutral">WR +0.3pp, N +3</td>
+    </tr>
+  </table>
+
+  <div class="callout">
+    <strong>The friction hurdle</strong> — with <code>CITRINE_TAKER_FEE = 0.0004</code> (4 bps × 2 sides = 8 bps) and <code>CITRINE_SLIPPAGE_BPS = 10</code> (10 bps × 2 sides = 20 bps), round-trip friction on an $833 notional is approximately <strong>28 bps = $2.34</strong>. Both cohorts' avg P&amp;L now sit <em>below</em> the hurdle:
+    <ul>
+      <li>Strict net: +$2.07 − $2.34 = <span class="neg">−$0.27 / trade</span></li>
+      <li>Relaxed net: +$2.21 − $2.34 = <span class="neg">−$0.13 / trade</span></li>
+    </ul>
+    Neither threshold would survive live execution at current fee assumptions. The 0.70/1d relaxation hypothesis is conclusively dead for this fee regime.
+  </div>
+
+  <h3>Visualization — Gross vs Net Edge</h3>
+  <div class="bar-row">
+    <div class="bar-label">Friction hurdle</div>
+    <div class="bar-track"><div class="bar-fill" style="width: 95%; background: var(--neon-pink);">$2.34 / trade</div></div>
+    <div class="bar-value neg">28 bps</div>
+  </div>
+  <div class="bar-row">
+    <div class="bar-label">Relaxed gross</div>
+    <div class="bar-track"><div class="bar-fill" style="width: 89%; background: var(--neon-cyan);">$2.21 / trade</div></div>
+    <div class="bar-value neutral">26 bps</div>
+  </div>
+  <div class="bar-row">
+    <div class="bar-label">Strict gross</div>
+    <div class="bar-track"><div class="bar-fill" style="width: 84%; background: var(--neon-cyan);">$2.07 / trade</div></div>
+    <div class="bar-value neutral">25 bps</div>
+  </div>
+</div>
+
+<!-- CRITICAL FINDING ================================================== -->
+<h2>Critical Finding — Shadow Tracker Architectural Gap</h2>
+<div class="panel cyan-accent">
+  <p>The Shadow Tracker's P&amp;L computation path (<code>live_trading_citrine.py</code> L298–327) writes <code>entry_price = scan.current_price</code> and <code>exit_price = scan.current_price</code> directly, with no fee or slippage adjustment. The live engine by contrast applies <code>_apply_slippage()</code> at L1173 and <code>TAKER_FEE</code> at L1105.</p>
+  <p>Every shadow A/B comparison to date has therefore carried a <strong>~28 bps phantom tailwind</strong>. The Grinold result that appeared to show 5.2× IR superiority for the relaxed cohort was correct in direction but <em>insufficient in magnitude</em> once friction is priced in.</p>
+
+  <div class="callout green">
+    <strong>Sprint 17 Patch (Approved · Post-72h Protocol)</strong>
+    <pre style="background: var(--panel-2); padding: 10px; border-radius: 4px; color: var(--text); font-size: 12px; overflow-x: auto; border: 1px solid var(--border); margin: 8px 0;">
+# Proposed patch in ShadowTracker._log_shadow_trade (citrine_trades.db)
+if action == "EXIT" and pnl is not None:
+    gross_notional = (entry_notional + exit_notional)
+    fee = gross_notional * config.CITRINE_TAKER_FEE
+    slippage_cost = (entry_notional + exit_notional) * (config.CITRINE_SLIPPAGE_BPS / 10000)
+    pnl_net = pnl - fee - slippage_cost
+    # persist BOTH pnl (gross) and pnl_net for historical integrity
+    </pre>
+    Activation: post-72h hands-off protocol expiration. Converts shadow from Type 1 (signal predictive content) to Type 2 (harvestable edge under friction) telemetry.
+  </div>
+</div>
+
+<!-- TIMELINE ========================================================== -->
+<h2>Timeline — Recent 14 Days</h2>
+<table>
+  <tr><th>Date</th><th>Event</th><th>Project</th></tr>
+  <tr><td class="num">Apr 11</td><td>BERYL closes MELI/ADI/CSX — 3 concurrent wins (+$113)</td><td>B1</td></tr>
+  <tr><td class="num">Apr 14–15</td><td>BERYL closes MSTR/WDC/MU/MCHP — 4 more wins (+$131)</td><td>B1</td></tr>
+  <tr><td class="num">Apr 17–18</td><td>Sprint 15 cross-sectional ranker killed; pivot to time-series eviction</td><td>B1</td></tr>
+  <tr><td class="num">Apr 20</td><td>AGATE suspended; ETH final exit −$115.79; Sprint 16 eviction engine deployed to BERYL</td><td>A1 / B1</td></tr>
+  <tr><td class="num">Apr 21</td><td>First Sprint 16 scan: 29 BUYs, 93% rejected as structural drift</td><td>B1</td></tr>
+  <tr><td class="num">Apr 22</td><td>BERYL MNST scratch exit at −$0.12 — first loss; CITRINE shadow A/B analysis</td><td>B1 / C1</td></tr>
+  <tr><td class="num">Apr 23</td><td>Forensic review: shadow tracker frictionless P&amp;L discovered; Sprint 17 patch approved</td><td>C1</td></tr>
+</table>
+
+<!-- FORWARD GATES ==================================================== -->
+<h2>Forward Gates — Armed Triggers</h2>
+<div class="panel">
+  <table>
+    <tr><th style="width: 25%;">Trigger</th><th>Condition</th><th>Action on Fire</th></tr>
+    <tr>
+      <td><span class="chip info">BERYL</span></td>
+      <td>First <code>confidence_degradation</code> eviction logged</td>
+      <td>Open review session; analyze entry conf vs exit conf vs price path</td>
+    </tr>
+    <tr>
+      <td><span class="chip info">CITRINE</span></td>
+      <td>Strict cohort crosses N ≥ 30</td>
+      <td>Re-run Grinold A/B with Wilson CI; apply Sprint 17 patched shadow P&amp;L</td>
+    </tr>
+    <tr>
+      <td><span class="chip caution">ANY</span></td>
+      <td>Single-day drawdown &gt; 5% portfolio</td>
+      <td>Immediate diagnostic; kill-switch already auto-liquidates</td>
+    </tr>
+    <tr>
+      <td><span class="chip caution">BERYL</span></td>
+      <td>HON position confidence falls below 0.60</td>
+      <td>Observe eviction fire; confirm <code>exit_reason='confidence_degradation'</code> in DB</td>
+    </tr>
+  </table>
+</div>
+
+<!-- NEXT ACTIONS ==================================================== -->
+<h2>Next Actions — Prioritized</h2>
+<ol style="font-size: 13px; line-height: 1.7;">
+  <li><strong>[WAITING] Hands-off protocol</strong> — 72-hour observation window. No engine changes. Let the data mature.</li>
+  <li><strong>[QUEUED] Sprint 17 shadow friction patch</strong> — 10 LOC in <code>ShadowTracker._log_shadow_trade</code>. Activates post-protocol.</li>
+  <li><strong>[DEFERRED] Sprint 17b: BERYL eviction notifier</strong> — Pushover currently fires generic "SELL"; no <code>exit_reason='confidence_degradation'</code> propagation. Low-priority cleanup.</li>
+  <li><strong>[BACKLOG] AGATE Student's t-HMM rewrite</strong> — Requires custom M-step implementation. hmmlearn does not support. Material engineering effort; no ETA.</li>
+  <li><strong>[MONITORING] CITRINE strict cohort</strong> — Await N ≥ 30 before statistical claims. Current N=13, Wilson CI on 46.2% spans roughly [20%, 74%] — still indistinguishable from a fair coin.</li>
+</ol>
+
+<div class="footer-note">
+  Generated 2026-04-23 · trading-core · Data: VM <code>129.158.40.51</code> · BERYL snapshot 2026-04-22T06:02 UTC · CITRINE snapshot 2026-04-23T04:47 UTC · AGATE terminal
+</div>
+
+</div>
+</body>
+</html>
