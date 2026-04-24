@@ -99,9 +99,18 @@ class LiveTradingEngine:
     and adaptive confirmations (lower cf threshold at high regime confidence).
     """
 
-    def __init__(self, tickers: list[str], test_mode: bool = True):
+    def __init__(
+        self,
+        tickers: list[str],
+        test_mode: bool = True,
+        shadow_mode: bool = False,
+    ):
         self.tickers = tickers
         self.test_mode = test_mode
+        # Sprint 17a (2026-04-24): bypass broker + ledger writes. Signals still
+        # generated, still written to agate_journal.db for Phase-2 Brier analysis.
+        # See memory/sprint17_agate_resurrection_plan.md for the full decision tree.
+        self.shadow_mode = shadow_mode
 
         # Broker starts with a default product; we switch it per trade
         self.broker = LiveBroker(
@@ -131,7 +140,12 @@ class LiveTradingEngine:
         self._journal_db = Path(__file__).parent / "agate_journal.db"
         self._init_journal_db()
 
-        mode = "TEST" if test_mode else "REAL"
+        if shadow_mode:
+            mode = "SHADOW-ONLY (Sprint 17a — broker bypassed)"
+        elif test_mode:
+            mode = "TEST"
+        else:
+            mode = "REAL"
         log.info(f"Live Trading Engine initialized ({mode} mode)")
         log.info(f"   Tickers: {len(tickers)} crypto ({', '.join(t.replace('X:','') for t in tickers[:5])}{'...' if len(tickers) > 5 else ''})")
         log.info(f"   Timeframe: {config.TIMEFRAME}")
@@ -714,15 +728,39 @@ class LiveTradingEngine:
                         log.info(f"Scan complete: {bull_count} BULL, {bear_count} BEAR, {chop_count} CHOP | {buy_count} BUY signals")
 
                         # Process: exit BEAR, enter best BUY
-                        executed = self.process_signals(signals)
-                        if executed:
-                            log.info("Trade executed")
+                        if self.shadow_mode:
+                            # Sprint 17a: bypass broker entirely. Log would-be actions
+                            # and persist everything to agate_journal.db for
+                            # Phase-2 Brier decomposition analysis (Late May).
+                            buy_signals = [s for s in signals if s.get("signal") == "BUY"]
+                            bear_signals = [s for s in signals if s.get("regime") == "BEAR"]
+                            log.info(
+                                f"[SHADOW] Execution bypassed — "
+                                f"{len(buy_signals)} BUY, {len(bear_signals)} BEAR flagged"
+                            )
+                            for s in buy_signals[:5]:
+                                tk = s.get("ticker", "?").replace("X:", "")
+                                log.info(
+                                    f"[SHADOW] Would-enter: {tk} "
+                                    f"conf={s.get('confidence', 0):.3f} "
+                                    f"cf={s.get('confirmations', 0)}/8 "
+                                    f"regime={s.get('regime', '?')}"
+                                )
+                            executed = False
+                        else:
+                            executed = self.process_signals(signals)
+                            if executed:
+                                log.info("Trade executed")
 
                         # Near-miss alerts (1 indicator away from BUY)
                         self._check_near_misses(signals)
 
-                        # Signal journal (full audit trail)
-                        decision = "TRADE" if executed else "HOLD"
+                        # Signal journal (full audit trail) — runs in BOTH modes.
+                        # Shadow mode: DECISION="SHADOW" so Phase-2 analysis can filter.
+                        if self.shadow_mode:
+                            decision = "SHADOW"
+                        else:
+                            decision = "TRADE" if executed else "HOLD"
                         self._log_journal(signals, decision)
 
                     # ── Daily email ──────────────────────────────────
@@ -745,6 +783,16 @@ def main():
     parser.add_argument("--test", action="store_true", help="Run in test mode (no real money)")
     parser.add_argument("--live", action="store_true", help="RUN IN LIVE MODE (REAL MONEY)")
     parser.add_argument(
+        "--shadow-only",
+        action="store_true",
+        help=(
+            "Sprint 17a (2026-04-24): generate signals + log posteriors + write to "
+            "agate_journal.db, but BYPASS broker & ledger entirely. Used for "
+            "forward-observation of model calibration (Phase 1 of Sprint 17 "
+            "AGATE resurrection plan). See memory/sprint17_agate_resurrection_plan.md."
+        ),
+    )
+    parser.add_argument(
         "--tickers",
         type=str,
         default=None,
@@ -753,9 +801,13 @@ def main():
 
     args = parser.parse_args()
 
-    if not args.test and not args.live:
+    if not args.test and not args.live and not args.shadow_only:
         parser.print_help()
-        print("\nYou must specify --test or --live")
+        print("\nYou must specify --test, --live, or --shadow-only")
+        sys.exit(1)
+
+    if args.shadow_only and args.live:
+        print("\nERROR: --shadow-only and --live are mutually exclusive.")
         sys.exit(1)
 
     if args.live:
@@ -780,7 +832,13 @@ def main():
         sys.exit(0)
     signal_mod.signal(signal_mod.SIGTERM, _sigterm_handler)
 
-    engine = LiveTradingEngine(tickers=tickers, test_mode=args.test)
+    # Sprint 17a: --shadow-only implies test_mode=True so broker wiring never
+    # activates even if the shadow gate is bypassed by a future refactor.
+    engine = LiveTradingEngine(
+        tickers=tickers,
+        test_mode=(args.test or args.shadow_only),
+        shadow_mode=args.shadow_only,
+    )
     engine.run_forever()
 
 
