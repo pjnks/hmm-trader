@@ -1,10 +1,10 @@
 {
   "CTAS": {
-    "n_states": 4,
-    "feature_set": "extended",
+    "n_states": 6,
+    "feature_set": "base",
     "cov_type": "diag",
-    "confirmations": 7,
-    "wf_sharpe": 0.4632
+    "confirmations": 6,
+    "wf_sharpe": 0.4688
   },
   "MRVL": {
     "n_states": 6,
@@ -126,11 +126,11 @@
     "wf_sharpe": 0.836
   },
   "CHTR": {
-    "n_states": 6,
-    "feature_set": "base",
-    "cov_type": "full",
+    "n_states": 4,
+    "feature_set": "extended",
+    "cov_type": "diag",
     "confirmations": 6,
-    "wf_sharpe": -0.0301
+    "wf_sharpe": 0.645
   },
   "MSFT": {
     "n_states": 4,
@@ -140,11 +140,11 @@
     "wf_sharpe": 0.7458
   },
   "QCOM": {
-    "n_states": 5,
-    "feature_set": "base",
-    "cov_type": "diag",
+    "n_states": 6,
+    "feature_set": "extended",
+    "cov_type": "full",
     "confirmations": 6,
-    "wf_sharpe": 0.1458
+    "wf_sharpe": 0.5183
   },
   "TSLA": {
     "n_states": 4,
@@ -336,11 +336,11 @@
     "wf_sharpe": -0.0325
   },
   "CPRT": {
-    "n_states": 6,
-    "feature_set": "base",
+    "n_states": 5,
+    "feature_set": "extended",
     "cov_type": "diag",
-    "confirmations": 7,
-    "wf_sharpe": 0.0725
+    "confirmations": 6,
+    "wf_sharpe": 0.7294
   },
   "WDC": {
     "n_states": 6,
@@ -505,17 +505,17 @@
   },
   "ZS": {
     "n_states": 4,
-    "feature_set": "extended",
+    "feature_set": "extended_v2",
     "cov_type": "full",
-    "confirmations": 7,
-    "wf_sharpe": 0.7258
+    "confirmations": 6,
+    "wf_sharpe": 0.7704
   },
   "ORLY": {
     "n_states": 6,
-    "feature_set": "extended",
-    "cov_type": "full",
-    "confirmations": 7,
-    "wf_sharpe": -0.3669
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 1.96
   },
   "AVGO": {
     "n_states": 4,
@@ -637,11 +637,11 @@
     "wf_sharpe": 1.1699
   },
   "CDNS": {
-    "n_states": 5,
-    "feature_set": "extended",
-    "cov_type": "full",
-    "confirmations": 7,
-    "wf_sharpe": 0.3391
+    "n_states": 6,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 0.6103
   },
   "LIN": {
     "n_states": 4,

@@ -3,8 +3,8 @@
     "project": "AGATE",
     "status": "DISCREPANCIES_FOUND",
     "discrepancies": [
-      "CONFIDENCE DRIFT: live=0.973 vs backtest=0.907 (diff=0.066)",
-      "PRICE DRIFT: live=$70514.65 vs backtest=$86.17 (81732.0%)"
+      "CONFIDENCE DRIFT: live=0.973 vs backtest=0.876 (diff=0.097)",
+      "PRICE DRIFT: live=$70514.65 vs backtest=$86.18 (81722.5%)"
     ],
     "live_signal": {
       "regime": "CHOP",
@@ -15,18 +15,16 @@
     },
     "backtest_signal": {
       "regime": "CHOP",
-      "confidence": 0.9066343556306642,
+      "confidence": 0.8763491793262547,
       "signal": "HOLD",
-      "confirmations": 5,
-      "price": 86.17
+      "confirmations": 4,
+      "price": 86.18
     }
   },
   {
     "project": "BERYL",
-    "status": "DISCREPANCIES_FOUND",
-    "discrepancies": [
-      "REGIME MISMATCH: live=BULL vs backtest=BEAR"
-    ],
+    "status": "OK",
+    "discrepancies": [],
     "live_signal": {
       "regime": "BULL",
       "confidence": 0.9999052801143915,
@@ -35,10 +33,10 @@
       "price": 391.79
     },
     "backtest_signal": {
-      "regime": "BEAR",
-      "confidence": 0.9985204512718282,
-      "confirmations": 5,
-      "price": 201.68
+      "regime": "BULL",
+      "confidence": 0.9999806626625053,
+      "confirmations": 6,
+      "price": 208.27
     }
   },
   {
