@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Short Engine EV — 2026-04-24</title>
+
+<style>
+* { box-sizing: border-box; }
+body { background: #030508; color: #d0eaf5; margin: 0; padding: 32px 16px;
+       font-family: -apple-system, BlinkMacSystemFont, "SF Mono", Menlo, monospace; line-height: 1.5; }
+.wrap { max-width: 1000px; margin: 0 auto; }
+h1 { font-size: 24px; margin: 0 0 4px 0; font-weight: 600; letter-spacing: -0.5px; }
+h1 .accent { color: #00f0ff; }
+.subtitle { color: #8ab4c8; font-size: 13px; margin-bottom: 24px; }
+h2 { font-size: 16px; margin: 28px 0 10px 0; color: #00f0ff;
+      border-bottom: 1px solid #1a3040; padding-bottom: 5px; }
+h3 { font-size: 13px; margin: 14px 0 8px 0; color: #8ab4c8; text-transform: uppercase; letter-spacing: 0.5px; }
+.tldr { background: rgba(0,240,255,0.04); border: 1px solid #00f0ff;
+         border-radius: 6px; padding: 14px 18px; margin-bottom: 20px; }
+.tldr li { font-size: 13px; margin: 6px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 6px 0; }
+th, td { text-align: left; padding: 6px 9px; border-bottom: 1px solid #1a3040; }
+th { color: #8ab4c8; background: #0e1c2b; font-weight: 500;
+      font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: "SF Mono", monospace; }
+.pos { color: #00ff9f; }
+.neg { color: #ff2d6b; }
+.neutral { color: #8ab4c8; }
+.callout { background: rgba(0,240,255,0.06); border-left: 3px solid #00f0ff;
+            padding: 10px 14px; margin: 14px 0; font-size: 12px; border-radius: 0 4px 4px 0; }
+.callout.green { background: rgba(0,255,159,0.06); border-left-color: #00ff9f; }
+.callout.pink { background: rgba(255,45,107,0.08); border-left-color: #ff2d6b; }
+.callout.yellow { background: rgba(255,225,86,0.06); border-left-color: #ffe156; }
+.bar-row { display: flex; align-items: center; margin: 4px 0; font-size: 11px; }
+.bar-label { width: 220px; color: #8ab4c8; flex-shrink: 0; }
+.bar-track { flex: 1; height: 18px; background: #0e1c2b; border-radius: 3px; overflow: hidden; }
+.bar-fill { height: 100%; padding: 0 7px; display: flex; align-items: center;
+             color: #030508; font-weight: 600; font-size: 10px; }
+.bar-value { margin-left: 8px; width: 80px; text-align: right; font-variant-numeric: tabular-nums; font-size: 11px; }
+.panel { background: #0a1520; border: 1px solid #1a3040; border-radius: 6px;
+          padding: 14px 18px; margin: 12px 0; }
+.footer { color: #5a7c8f; font-size: 10px; margin-top: 30px;
+           padding-top: 12px; border-top: 1px solid #1a3040; text-align: center; }
+code { background: #0e1c2b; padding: 1px 5px; border-radius: 3px;
+        color: #00f0ff; font-size: 11px; font-family: "SF Mono", monospace; }
+.metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0; }
+.metric { background: #0e1c2b; border: 1px solid #1a3040;
+           border-radius: 4px; padding: 8px 10px; }
+.metric .lbl { color: #5a7c8f; font-size: 9px; letter-spacing: 0.5px; text-transform: uppercase; }
+.metric .val { font-size: 17px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+</style>
+</head><body><div class="wrap">
+<h1><span class="accent">SHORT ENGINE</span> · Friction-Adjusted EV</h1>
+<div class="subtitle">2026-04-24 · Sprint 17 research · Task A · 13,230 rows ·
+98 NDX tickers × 135 days · cross-sectionally neutralized</div>
+
+<div class="tldr">
+<h3 style="color: #00f0ff; margin-top: 0;">VERDICT</h3>
+<div class="callout pink" style="margin: 8px 0;"><strong>NO HARVESTABLE EDGE.</strong> Best configuration yields -22.2 bps net — friction consumes the gross alpha. Short-side hypothesis falsified at current borrow assumptions.</div>
+<ul>
+  <li><strong>Hypothesis tested</strong>: short entries on
+    <code>confidence &lt; 0.60 AND negative velocity</code> across the
+    Sprint 15 backfill, neutralized by equal-weighted basket return.</li>
+  <li><strong>Friction model</strong>: 28 bps base (fees + slippage) + 11 bps/day borrow
+    (40% annualized HTB-light assumption).</li>
+  <li><strong>Quarter-boundary masking</strong> applied: velocity computed only within-quarter to
+    prevent state-permutation artifacts from quarterly HMM retrains.</li>
+  <li><strong>Best configuration</strong>: Moderate (vel_1d ≤ −5pp)
+    @ Fixed T+1
+    yielding <strong>-22.2 bps</strong> net.</li>
+</ul>
+</div>
+
+<h2>Per-Threshold Performance</h2>
+<h3>Soft (vel_1d < 0)  <span class="neutral">(N candidates: 406)</span></h3><table><tr><th>Exit Rule</th><th>N</th><th>Gross Neutralized</th><th>Friction</th><th>Net (post-friction)</th><th>Hit Rate (net&gt;0)</th><th>Sharpe-like</th></tr><tr><td>Fixed T+1</td><td class="num">383</td><td class="num pos">+13.0 bps</td><td class="num neutral">39.0 bps</td><td class="num neg"><strong>-26.0 bps</strong></td><td class="num">41.5%</td><td class="num">1.03</td></tr><tr><td>Fixed T+2</td><td class="num">379</td><td class="num pos">+11.0 bps</td><td class="num neutral">50.0 bps</td><td class="num neg"><strong>-39.0 bps</strong></td><td class="num">41.7%</td><td class="num">0.43</td></tr><tr><td>Fixed T+3</td><td class="num">374</td><td class="num pos">+10.0 bps</td><td class="num neutral">61.0 bps</td><td class="num neg"><strong>-51.0 bps</strong></td><td class="num">44.1%</td><td class="num">0.25</td></tr><tr><td>Fixed T+5</td><td class="num">367</td><td class="num pos">+38.4 bps</td><td class="num neutral">83.0 bps</td><td class="num neg"><strong>-44.6 bps</strong></td><td class="num">46.3%</td><td class="num">0.59</td></tr><tr><td>Fixed T+10</td><td class="num">351</td><td class="num pos">+79.6 bps</td><td class="num neutral">138.0 bps</td><td class="num neg"><strong>-58.4 bps</strong></td><td class="num">48.7%</td><td class="num">0.56</td></tr><tr><td>Dynamic (cover @ conf≥0.60, avg 1.3d)</td><td class="num">382</td><td class="num pos">+4.4 bps</td><td class="num neutral">42.7 bps</td><td class="num neg"><strong>-38.3 bps</strong></td><td class="num">43.5%</td><td class="num">0.23</td></tr></table><h3>Moderate (vel_1d ≤ −5pp)  <span class="neutral">(N candidates: 378)</span></h3><table><tr><th>Exit Rule</th><th>N</th><th>Gross Neutralized</th><th>Friction</th><th>Net (post-friction)</th><th>Hit Rate (net&gt;0)</th><th>Sharpe-like</th></tr><tr><td>Fixed T+1</td><td class="num">358</td><td class="num pos">+16.8 bps</td><td class="num neutral">39.0 bps</td><td class="num neg"><strong>-22.2 bps</strong></td><td class="num">41.3%</td><td class="num">1.43</td></tr><tr><td>Fixed T+2</td><td class="num">354</td><td class="num pos">+16.4 bps</td><td class="num neutral">50.0 bps</td><td class="num neg"><strong>-33.6 bps</strong></td><td class="num">41.5%</td><td class="num">0.68</td></tr><tr><td>Fixed T+3</td><td class="num">351</td><td class="num pos">+16.8 bps</td><td class="num neutral">61.0 bps</td><td class="num neg"><strong>-44.2 bps</strong></td><td class="num">44.2%</td><td class="num">0.45</td></tr><tr><td>Fixed T+5</td><td class="num">344</td><td class="num pos">+51.4 bps</td><td class="num neutral">83.0 bps</td><td class="num neg"><strong>-31.6 bps</strong></td><td class="num">46.2%</td><td class="num">0.83</td></tr><tr><td>Fixed T+10</td><td class="num">331</td><td class="num pos">+101.1 bps</td><td class="num neutral">138.0 bps</td><td class="num neg"><strong>-36.9 bps</strong></td><td class="num">49.8%</td><td class="num">0.74</td></tr><tr><td>Dynamic (cover @ conf≥0.60, avg 1.3d)</td><td class="num">357</td><td class="num pos">+14.5 bps</td><td class="num neutral">42.1 bps</td><td class="num neg"><strong>-27.6 bps</strong></td><td class="num">42.3%</td><td class="num">0.92</td></tr></table><h3>Strong (vel_3d ≤ −15pp)  <span class="neutral">(N candidates: 354)</span></h3><table><tr><th>Exit Rule</th><th>N</th><th>Gross Neutralized</th><th>Friction</th><th>Net (post-friction)</th><th>Hit Rate (net&gt;0)</th><th>Sharpe-like</th></tr><tr><td>Fixed T+1</td><td class="num">349</td><td class="num pos">+10.6 bps</td><td class="num neutral">39.0 bps</td><td class="num neg"><strong>-28.4 bps</strong></td><td class="num">41.0%</td><td class="num">0.87</td></tr><tr><td>Fixed T+2</td><td class="num">344</td><td class="num pos">+11.1 bps</td><td class="num neutral">50.0 bps</td><td class="num neg"><strong>-38.9 bps</strong></td><td class="num">41.3%</td><td class="num">0.45</td></tr><tr><td>Fixed T+3</td><td class="num">341</td><td class="num neg">-0.4 bps</td><td class="num neutral">61.0 bps</td><td class="num neg"><strong>-61.4 bps</strong></td><td class="num">41.3%</td><td class="num">-0.01</td></tr><tr><td>Fixed T+5</td><td class="num">333</td><td class="num pos">+48.9 bps</td><td class="num neutral">83.0 bps</td><td class="num neg"><strong>-34.1 bps</strong></td><td class="num">47.4%</td><td class="num">0.82</td></tr><tr><td>Fixed T+10</td><td class="num">318</td><td class="num pos">+81.2 bps</td><td class="num neutral">138.0 bps</td><td class="num neg"><strong>-56.8 bps</strong></td><td class="num">48.1%</td><td class="num">0.57</td></tr><tr><td>Dynamic (cover @ conf≥0.60, avg 1.3d)</td><td class="num">347</td><td class="num pos">+9.2 bps</td><td class="num neutral">42.4 bps</td><td class="num neg"><strong>-33.2 bps</strong></td><td class="num">41.8%</td><td class="num">0.56</td></tr></table>
+
+<h2>Methodology Notes</h2>
+<div class="panel">
+<ul>
+<li><strong>Neutralization</strong>: For each scan_date, subtract the equal-weighted mean forward
+return of all 98 tickers from each ticker's individual forward return. Equivalent to the deployed
+hedge: short the target asset, long an equal-weighted basket of the rest.</li>
+<li><strong>Short-side P&amp;L</strong>: <code>pnl = -1 × neutralized_forward_return</code>.
+A profitable short occurs when the target underperforms the basket.</li>
+<li><strong>Dynamic exit</strong>: For each entry signal at date t, the exit date is the first
+t+k (k ∈ [1,10]) where ticker confidence ≥ 0.6. If confidence never recovers,
+the position holds the maximum 10-day window and reports T+10.</li>
+<li><strong>Friction asymmetry</strong>: Fixed-horizon trades pay friction proportional to the
+horizon. Dynamic-exit friction uses the realized average hold duration.</li>
+<li><strong>Sharpe-like proxy</strong>: per-trade mean / std × √(252 / hold_days). Annualized
+single-trade-equivalent — NOT a full strategy Sharpe (no path or vol-of-vol modeling).</li>
+</ul>
+</div>
+
+<div class="footer">Generated 2026-04-24 · trading-core/research/short_engine_eval.py ·
+Source: scan_journal_backfill (VM beryl_trades.db)</div>
+</div></body></html>

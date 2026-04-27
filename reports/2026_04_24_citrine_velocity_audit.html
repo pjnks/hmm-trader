@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>CITRINE Velocity Audit — 2026-04-24</title>
+
+<style>
+* { box-sizing: border-box; }
+body { background: #030508; color: #d0eaf5; margin: 0; padding: 32px 16px;
+       font-family: -apple-system, BlinkMacSystemFont, "SF Mono", Menlo, monospace; line-height: 1.5; }
+.wrap { max-width: 1000px; margin: 0 auto; }
+h1 { font-size: 24px; margin: 0 0 4px 0; font-weight: 600; letter-spacing: -0.5px; }
+h1 .accent { color: #00f0ff; }
+.subtitle { color: #8ab4c8; font-size: 13px; margin-bottom: 24px; }
+h2 { font-size: 16px; margin: 28px 0 10px 0; color: #00f0ff;
+      border-bottom: 1px solid #1a3040; padding-bottom: 5px; }
+h3 { font-size: 13px; margin: 14px 0 8px 0; color: #8ab4c8; text-transform: uppercase; letter-spacing: 0.5px; }
+.tldr { background: rgba(0,240,255,0.04); border: 1px solid #00f0ff;
+         border-radius: 6px; padding: 14px 18px; margin-bottom: 20px; }
+.tldr li { font-size: 13px; margin: 6px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 6px 0; }
+th, td { text-align: left; padding: 6px 9px; border-bottom: 1px solid #1a3040; }
+th { color: #8ab4c8; background: #0e1c2b; font-weight: 500;
+      font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: "SF Mono", monospace; }
+.pos { color: #00ff9f; }
+.neg { color: #ff2d6b; }
+.neutral { color: #8ab4c8; }
+.callout { background: rgba(0,240,255,0.06); border-left: 3px solid #00f0ff;
+            padding: 10px 14px; margin: 14px 0; font-size: 12px; border-radius: 0 4px 4px 0; }
+.callout.green { background: rgba(0,255,159,0.06); border-left-color: #00ff9f; }
+.callout.pink { background: rgba(255,45,107,0.08); border-left-color: #ff2d6b; }
+.callout.yellow { background: rgba(255,225,86,0.06); border-left-color: #ffe156; }
+.bar-row { display: flex; align-items: center; margin: 4px 0; font-size: 11px; }
+.bar-label { width: 220px; color: #8ab4c8; flex-shrink: 0; }
+.bar-track { flex: 1; height: 18px; background: #0e1c2b; border-radius: 3px; overflow: hidden; }
+.bar-fill { height: 100%; padding: 0 7px; display: flex; align-items: center;
+             color: #030508; font-weight: 600; font-size: 10px; }
+.bar-value { margin-left: 8px; width: 80px; text-align: right; font-variant-numeric: tabular-nums; font-size: 11px; }
+.panel { background: #0a1520; border: 1px solid #1a3040; border-radius: 6px;
+          padding: 14px 18px; margin: 12px 0; }
+.footer { color: #5a7c8f; font-size: 10px; margin-top: 30px;
+           padding-top: 12px; border-top: 1px solid #1a3040; text-align: center; }
+code { background: #0e1c2b; padding: 1px 5px; border-radius: 3px;
+        color: #00f0ff; font-size: 11px; font-family: "SF Mono", monospace; }
+.metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0; }
+.metric { background: #0e1c2b; border: 1px solid #1a3040;
+           border-radius: 4px; padding: 8px 10px; }
+.metric .lbl { color: #5a7c8f; font-size: 9px; letter-spacing: 0.5px; text-transform: uppercase; }
+.metric .val { font-size: 17px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+</style>
+</head><body><div class="wrap">
+<h1><span class="accent">CITRINE</span> · Velocity-Gate Audit</h1>
+<div class="subtitle">2026-04-24 · Sprint 17 research · Task B · Forward returns by confidence
+bin · 13,230-row backfill · cross-sectionally neutralized</div>
+
+<div class="tldr">
+<h3 style="color: #00f0ff; margin-top: 0;">VERDICT</h3>
+<div class="callout pink" style="margin: 8px 0;"><strong>HYPOTHESIS REFUTED.</strong> Drift band actually outperforms velocity band by +4.0 bps at T+1, +3.8 bps at T+3. The MCHP/CSGP observation may be small-N noise; CITRINE entry logic does not need a velocity gate.</div>
+<ul>
+  <li><strong>Triggering observation</strong>: 2026-04-24 — MCHP and CSGP entered at confidence
+    ≥ 0.99, both stopped within 8 hours by the −2% intraday catastrophe stop.</li>
+  <li><strong>Question</strong>: across the historical journal, do top-decile (≥0.95) entries
+    systematically underperform the BERYL Sprint 16 velocity band (0.60–0.80)?</li>
+  <li><strong>Velocity band T+1 mean</strong>: -3.9 bps (neutralized)</li>
+  <li><strong>Drift band T+1 mean</strong>: +0.1 bps (neutralized)</li>
+  <li><strong>Δ (velocity − drift)</strong>: <strong>-4.0 bps</strong> at T+1,
+    <strong>-3.8 bps</strong> at T+3</li>
+</ul>
+</div>
+
+<h2>Neutralized T+1 Forward Return by Confidence Bin</h2>
+<div class="panel">
+<div class="bar-row"><div class="bar-label">[0.00,0.50) (N=95)</div><div class="bar-track"><div class="bar-fill" style="width: 100.0%; background: #ff2d6b;"></div></div><div class="bar-value">-28.3 bps</div></div><div class="bar-row"><div class="bar-label">[0.50,0.60) (N=372)</div><div class="bar-track"><div class="bar-fill" style="width: 5.8%; background: #ff2d6b;"></div></div><div class="bar-value">-1.6 bps</div></div><div class="bar-row"><div class="bar-label">[0.60,0.70) (N=808)</div><div class="bar-track"><div class="bar-fill" style="width: 15.4%; background: #ff2d6b;"></div></div><div class="bar-value">-4.4 bps</div></div><div class="bar-row"><div class="bar-label">[0.70,0.80) (N=1,746)</div><div class="bar-track"><div class="bar-fill" style="width: 12.3%; background: #ff2d6b;"></div></div><div class="bar-value">-3.5 bps</div></div><div class="bar-row"><div class="bar-label">[0.80,0.90) (N=2,590)</div><div class="bar-track"><div class="bar-fill" style="width: 18.1%; background: #00ff9f;"></div></div><div class="bar-value">+5.1 bps</div></div><div class="bar-row"><div class="bar-label">[0.90,0.95) (N=1,765)</div><div class="bar-track"><div class="bar-fill" style="width: 2.6%; background: #00ff9f;"></div></div><div class="bar-value">+0.7 bps</div></div><div class="bar-row"><div class="bar-label">[0.95,1.00] (N=5,801)</div><div class="bar-track"><div class="bar-fill" style="width: 2.0%; background: #ff2d6b;"></div></div><div class="bar-value">-0.6 bps</div></div>
+</div>
+
+<h2>Full Decile Table</h2>
+<table>
+<tr><th>Conf Bin</th><th>N</th>
+<th>Raw T+1</th><th>Raw T+3</th><th>Raw T+5</th>
+<th>Neut T+1</th><th>Neut T+3</th><th>Neut T+5</th></tr>
+<tr><td>[0.00,0.50)</td><td class="num">95</td><td class="num neg">-27.0 bps</td><td class="num neg">-17.3 bps</td><td class="num neg">-35.0 bps</td><td class="num neg">-28.3 bps</td><td class="num pos">+0.3 bps</td><td class="num neg">-37.7 bps</td></tr><tr><td>[0.50,0.60)</td><td class="num">372</td><td class="num pos">+0.6 bps</td><td class="num pos">+0.3 bps</td><td class="num neg">-36.4 bps</td><td class="num neg">-1.6 bps</td><td class="num pos">+4.5 bps</td><td class="num neg">-35.1 bps</td></tr><tr><td>[0.60,0.70)</td><td class="num">808</td><td class="num pos">+3.9 bps</td><td class="num pos">+10.2 bps</td><td class="num pos">+12.5 bps</td><td class="num neg">-4.4 bps</td><td class="num pos">+6.7 bps</td><td class="num pos">+6.7 bps</td></tr><tr><td>[0.70,0.80)</td><td class="num">1,746</td><td class="num pos">+1.6 bps</td><td class="num neg">-3.7 bps</td><td class="num neg">-4.3 bps</td><td class="num neg">-3.5 bps</td><td class="num neg">-12.3 bps</td><td class="num neg">-15.8 bps</td></tr><tr><td>[0.80,0.90)</td><td class="num">2,590</td><td class="num pos">+8.7 bps</td><td class="num pos">+12.8 bps</td><td class="num pos">+12.9 bps</td><td class="num pos">+5.1 bps</td><td class="num pos">+5.3 bps</td><td class="num pos">+3.6 bps</td></tr><tr><td>[0.90,0.95)</td><td class="num">1,765</td><td class="num pos">+4.3 bps</td><td class="num pos">+7.8 bps</td><td class="num pos">+15.2 bps</td><td class="num pos">+0.7 bps</td><td class="num pos">+2.2 bps</td><td class="num pos">+7.1 bps</td></tr><tr><td>[0.95,1.00]</td><td class="num">5,801</td><td class="num pos">+3.0 bps</td><td class="num pos">+12.5 bps</td><td class="num pos">+17.8 bps</td><td class="num neg">-0.6 bps</td><td class="num neg">-0.3 bps</td><td class="num pos">+3.5 bps</td></tr>
+</table>
+
+<h2>Methodology Notes</h2>
+<div class="panel">
+<ul>
+<li><strong>Raw return</strong>: <code>close[t+h] / close[t] − 1</code>.</li>
+<li><strong>Neutralized return</strong>: raw return minus that day's equal-weighted basket mean.
+This is the forward-return analog of the Sprint 15 cross-sectional residual analysis.</li>
+<li><strong>Bin boundaries</strong>: cut at 0.50, 0.60, 0.70, 0.80, 0.90, 0.95, 1.00. The 0.60–0.80
+"velocity band" matches BERYL Sprint 16's entry gate. The 0.90–1.00 range is the "structural drift"
+zone where the HMM has high confidence but realized returns historically disappoint.</li>
+<li><strong>Interpretation</strong>: a healthy entry gate should bin into confidence ranges where
+neutralized forward returns are systematically <em>positive</em>. Any bin with significantly
+negative neutralized returns is a candidate for exclusion or short-side flipping.</li>
+</ul>
+</div>
+
+<div class="footer">Generated 2026-04-24 · trading-core/research/short_engine_eval.py ·
+Source: scan_journal_backfill (VM beryl_trades.db)</div>
+</div></body></html>
