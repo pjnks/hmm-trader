@@ -3,7 +3,7 @@
 # Reports AGATE + BERYL + CITRINE portfolio status
 
 SSH_KEY="$HOME/.ssh/hmm-trader.key"
-VM="ubuntu@129.158.40.51"
+VM="ubuntu@167.233.16.202"
 
 RESULT=$(ssh -i "$SSH_KEY" "$VM" 'cd /home/ubuntu/HMM-Trader && /home/ubuntu/miniconda3/bin/python -c "
 import sqlite3, json

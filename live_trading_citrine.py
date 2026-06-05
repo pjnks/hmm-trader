@@ -212,6 +212,7 @@ class ShadowTracker:
                 ("scaled_weight", "REAL"),
                 ("live_would_enter", "INTEGER"),
                 ("indicator_json", "TEXT"),
+                ("pnl_net", "REAL"),  # Sprint 17: friction-adjusted P&L
             ]:
                 try:
                     conn.execute(
@@ -318,19 +319,32 @@ class ShadowTracker:
                 pos = self._positions[w.ticker]
                 entry_price = pos["entry_price"]
                 exit_price = scan.current_price
+                notional = pos.get("notional", 0)
+                pnl_net = None  # Sprint 17: friction-adjusted P&L
                 if entry_price > 0 and exit_price > 0:
                     if pos["direction"] == "LONG":
                         pnl_pct = (exit_price - entry_price) / entry_price * 100
                     else:
                         pnl_pct = (entry_price - exit_price) / entry_price * 100
-                    notional = pos.get("notional", 0)
                     pnl = notional * pnl_pct / 100
+
+                    # Sprint 17: apply same friction model as live engine
+                    # fee:      (entry_notional + exit_notional) × TAKER_FEE
+                    # slippage: (entry_notional + exit_notional) × SLIPPAGE_BPS/10000
+                    entry_notional = notional
+                    exit_notional = abs(exit_price * (notional / entry_price)) \
+                        if entry_price > 0 else notional
+                    fee_cost = (entry_notional + exit_notional) * config.CITRINE_TAKER_FEE
+                    slippage_cost = (entry_notional + exit_notional) * (
+                        config.CITRINE_SLIPPAGE_BPS / 10000.0
+                    )
+                    pnl_net = pnl - fee_cost - slippage_cost
                 else:
                     pnl, pnl_pct = 0.0, 0.0
 
                 self._log_shadow_trade(
                     now, w.ticker, "EXIT", pos["direction"], scan,
-                    weight=w, pnl=pnl, pnl_pct=pnl_pct,
+                    weight=w, pnl=pnl, pnl_pct=pnl_pct, pnl_net=pnl_net,
                     alt_boost=(alt_data_boosts or {}).get(w.ticker, 1.0),
                 )
                 del self._positions[w.ticker]
@@ -357,7 +371,8 @@ class ShadowTracker:
         direction: str, scan: TickerScan,
         weight: PortfolioWeight | None = None,
         score: float = 0.0, pnl: float | None = None,
-        pnl_pct: float | None = None, alt_boost: float = 1.0,
+        pnl_pct: float | None = None, pnl_net: float | None = None,  # Sprint 17
+        alt_boost: float = 1.0,
     ):
         notional = None
         if action == "ENTER":
@@ -385,18 +400,19 @@ class ShadowTracker:
             conn.execute(
                 """INSERT INTO shadow_trades
                 (timestamp, ticker, action, direction, price, notional,
-                 pnl, pnl_pct, regime, confidence, persistence,
+                 pnl, pnl_pct, pnl_net, regime, confidence, persistence,
                  confirmations, confirmations_short, realized_vol,
                  citrine_score, sector, entry_atr, regime_half_life,
                  alt_boost, target_weight, scaled_weight,
                  live_would_enter, indicator_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     timestamp, ticker, action, direction,
                     round(scan.current_price, 4),
                     round(notional, 2) if notional else None,
                     round(pnl, 2) if pnl is not None else None,
                     round(pnl_pct, 2) if pnl_pct is not None else None,
+                    round(pnl_net, 2) if pnl_net is not None else None,  # Sprint 17
                     scan.regime_cat,
                     round(scan.confidence, 4),
                     scan.persistence,
@@ -575,6 +591,25 @@ class CitrineLiveEngine:
                     chop_count INTEGER NOT NULL,
                     positions_json TEXT,
                     cash_pct REAL
+                )
+            """)
+            # FluoriteBridge shadow decisions table (6-week experiment)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS fluorite_decisions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    ticker TEXT NOT NULL,
+                    strategy TEXT NOT NULL,
+                    hmm_regime TEXT,
+                    hmm_confidence REAL,
+                    composite_score REAL,
+                    insider_score REAL,
+                    tripwire_score REAL,
+                    cluster_detected INTEGER,
+                    has_earnings_event INTEGER,
+                    calculated_boost REAL,
+                    position_held INTEGER,
+                    signal TEXT
                 )
             """)
             conn.commit()
@@ -902,6 +937,51 @@ class CitrineLiveEngine:
             log.info(f"  [RISK ENGINE] All {len(self.positions)} positions OK "
                      f"({held_with_atr} with Chandelier stops)")
 
+    def _log_fluorite_decisions(
+        self, f_detail: dict[str, dict], scan_map: dict, strategy: str,
+    ) -> None:
+        """
+        Log FLUORITE bridge decisions to fluorite_decisions table (shadow only).
+        Records what the bridge WOULD have done for every scored ticker.
+        Used for 6-week P&L attribution analysis.
+        """
+        now = datetime.now(tz=timezone.utc).isoformat()
+        rows = []
+        for ticker, detail in f_detail.items():
+            scan = scan_map.get(ticker)
+            rows.append((
+                now,
+                ticker,
+                strategy,
+                scan.regime_cat if scan else None,
+                round(scan.confidence, 4) if scan else None,
+                round(detail["composite_score"], 2),
+                round(detail["insider_score"], 2),
+                round(detail["tripwire_score"], 2),
+                detail["cluster_detected"],
+                detail["has_earnings_event"],
+                round(detail["boost"], 4),
+                1 if ticker in self.positions else 0,
+                "BUY" if scan and scan.regime_cat == "BULL" else
+                "SELL" if scan and scan.regime_cat == "BEAR" else "HOLD",
+            ))
+        if not rows:
+            return
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.executemany(
+                    """INSERT INTO fluorite_decisions
+                    (timestamp, ticker, strategy, hmm_regime, hmm_confidence,
+                     composite_score, insider_score, tripwire_score,
+                     cluster_detected, has_earnings_event, calculated_boost,
+                     position_held, signal)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    rows,
+                )
+                conn.commit()
+        except Exception as e:
+            log.warning(f"[FLUORITE] Shadow log write failed: {e}")
+
     def _fetch_alt_data_boosts(self, scans) -> dict[str, float]:
         """
         Fetch alt-data signals from two sources and combine multiplicatively:
@@ -952,6 +1032,27 @@ class CitrineLiveEngine:
                     boosts[ticker] = round(combined, 3)
         except Exception as e:
             log.warning(f"  [AltData] Failed to fetch DIAMOND data: {e}")
+
+        # Source 3: FLUORITE cross-sectional alpha screener (SHADOW ONLY)
+        # Logs what FluoriteBridge WOULD have boosted — does NOT modify
+        # the boosts dict. 6-week shadow phase, eval mid-July 2026.
+        try:
+            from src.fluorite_bridge import FluoriteBridge
+            f_bridge = FluoriteBridge()
+            f_detail = f_bridge.fetch_boosts_with_detail(all_tickers)
+
+            if f_detail:
+                log.info(f"[Step 1d] FLUORITE bridge (shadow): "
+                         f"{len(f_detail)} tickers scored, "
+                         f"{sum(1 for d in f_detail.values() if d['boost'] != 1.0)} boosted")
+
+                # Shadow-log decisions to fluorite_decisions table
+                scan_map = {s.ticker: s for s in scans if s.error is None}
+                self._log_fluorite_decisions(f_detail, scan_map, "CITRINE")
+            else:
+                log.debug("  [FLUORITE] No scores available (neutral)")
+        except Exception as e:
+            log.warning(f"  [AltData] FLUORITE bridge failed (non-fatal): {e}")
 
         return boosts
 

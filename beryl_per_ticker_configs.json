@@ -119,11 +119,11 @@
     "wf_sharpe": -1.374
   },
   "PCAR": {
-    "n_states": 5,
-    "feature_set": "extended",
+    "n_states": 3,
+    "feature_set": "base",
     "cov_type": "diag",
     "confirmations": 4,
-    "wf_sharpe": -0.793
+    "wf_sharpe": 1.412
   },
   "QCOM": {
     "n_states": 5,
@@ -175,11 +175,11 @@
     "wf_sharpe": 0.0
   },
   "MELI": {
-    "n_states": 4,
-    "feature_set": "extended_v2",
+    "n_states": 3,
+    "feature_set": "base",
     "cov_type": "diag",
-    "confirmations": 5,
-    "wf_sharpe": -0.724
+    "confirmations": 7,
+    "wf_sharpe": 0.0
   },
   "NFLX": {
     "n_states": 6,
@@ -245,11 +245,11 @@
     "wf_sharpe": 1.054
   },
   "WDC": {
-    "n_states": 3,
-    "feature_set": "extended_v2",
+    "n_states": 6,
+    "feature_set": "base",
     "cov_type": "diag",
-    "confirmations": 6,
-    "wf_sharpe": 0.156
+    "confirmations": 5,
+    "wf_sharpe": 2.104
   },
   "KHC": {
     "n_states": 3,
@@ -273,39 +273,39 @@
     "wf_sharpe": 1.55
   },
   "KDP": {
-    "n_states": 4,
-    "feature_set": "extended",
+    "n_states": 3,
+    "feature_set": "base",
     "cov_type": "diag",
-    "confirmations": 6,
-    "wf_sharpe": -0.345
+    "confirmations": 5,
+    "wf_sharpe": 0.827
   },
   "REGN": {
     "n_states": 4,
     "feature_set": "extended",
     "cov_type": "diag",
-    "confirmations": 6,
-    "wf_sharpe": -0.922
+    "confirmations": 7,
+    "wf_sharpe": 0.249
   },
   "MSTR": {
+    "n_states": 6,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 4,
+    "wf_sharpe": 0.338
+  },
+  "MU": {
+    "n_states": 6,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 4,
+    "wf_sharpe": -0.579
+  },
+  "MRVL": {
     "n_states": 4,
     "feature_set": "base",
     "cov_type": "diag",
     "confirmations": 4,
-    "wf_sharpe": -1.287
-  },
-  "MU": {
-    "n_states": 3,
-    "feature_set": "extended_v2",
-    "cov_type": "diag",
-    "confirmations": 4,
-    "wf_sharpe": -2.189
-  },
-  "MRVL": {
-    "n_states": 5,
-    "feature_set": "extended",
-    "cov_type": "diag",
-    "confirmations": 6,
-    "wf_sharpe": -0.385
+    "wf_sharpe": -0.008
   },
   "EA": {
     "n_states": 6,
@@ -350,18 +350,18 @@
     "wf_sharpe": 0.22
   },
   "XEL": {
-    "n_states": 6,
+    "n_states": 5,
     "feature_set": "base",
     "cov_type": "diag",
-    "confirmations": 6,
-    "wf_sharpe": -1.282
+    "confirmations": 5,
+    "wf_sharpe": -0.738
   },
   "TMUS": {
     "n_states": 3,
     "feature_set": "extended_v2",
     "cov_type": "diag",
-    "confirmations": 5,
-    "wf_sharpe": -0.571
+    "confirmations": 7,
+    "wf_sharpe": 0.462
   },
   "ODFL": {
     "n_states": 5,
@@ -404,5 +404,96 @@
     "cov_type": "diag",
     "confirmations": 4,
     "wf_sharpe": 3.635
+  },
+  "WBD": {
+    "n_states": 3,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 1.125
+  },
+  "PAYX": {
+    "n_states": 3,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 0.552
+  },
+  "PYPL": {
+    "n_states": 5,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.0
+  },
+  "META": {
+    "n_states": 3,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 1.043
+  },
+  "VRSK": {
+    "n_states": 5,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 4,
+    "wf_sharpe": -2.534
+  },
+  "ZS": {
+    "n_states": 5,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 5,
+    "wf_sharpe": -1.142
+  },
+  "TEAM": {
+    "n_states": 3,
+    "feature_set": "extended_v2",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": -0.058
+  },
+  "PANW": {
+    "n_states": 5,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 4,
+    "wf_sharpe": 1.334
+  },
+  "PLTR": {
+    "n_states": 5,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 7,
+    "wf_sharpe": 0.0
+  },
+  "MDLZ": {
+    "n_states": 4,
+    "feature_set": "extended_v2",
+    "cov_type": "diag",
+    "confirmations": 5,
+    "wf_sharpe": -0.474
+  },
+  "IDXX": {
+    "n_states": 3,
+    "feature_set": "extended",
+    "cov_type": "diag",
+    "confirmations": 6,
+    "wf_sharpe": 0.366
+  },
+  "MPWR": {
+    "n_states": 4,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 4,
+    "wf_sharpe": 1.729
+  },
+  "TXN": {
+    "n_states": 5,
+    "feature_set": "base",
+    "cov_type": "diag",
+    "confirmations": 4,
+    "wf_sharpe": -0.015
   }
 }

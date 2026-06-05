@@ -43,7 +43,7 @@ print(f'{title}: {msg}')
 
 # Auto-deploy: upload updated per-ticker configs to VM and restart beryl-trader
 SSH_KEY="$HOME/.ssh/hmm-trader.key"
-VM="ubuntu@129.158.40.51"
+VM="ubuntu@167.233.16.202"
 CONFIG_FILE="beryl_per_ticker_configs.json"
 
 if [ -f "$CONFIG_FILE" ]; then

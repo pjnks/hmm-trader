@@ -146,10 +146,10 @@ Why the gap?
 - Daily report includes BERYL optimization status and best Sharpe
 
 ### Visual Interfaces
-- **Live Dashboard** (`live_dashboard.py`) at `http://129.158.40.51:8060` — equity curve, kill-switch status, trade table, regime panels (BULL/BEAR/CHOP badges)
-- **CITRINE Dashboard** (`citrine_dashboard.py`) at `http://129.158.40.51:8070` — portfolio equity, allocation, position health, signal frequency, kill-switch
-- **DIAMOND Dashboard** (`diamond_dashboard.py`) at `http://129.158.40.51:8080` — anomaly feed, paper trading portfolio
-- **Consolidated Dashboard** (`consolidated_dashboard.py`) at `http://129.158.40.51:8090` — retro-futuristic bento-grid overview of all projects (Swiss Design palette, glassmorphism cards, 12-column CSS Grid, JetBrains Mono font; redesigned Sprint 8)
+- **Live Dashboard** (`live_dashboard.py`) at `http://167.233.16.202:8060` — equity curve, kill-switch status, trade table, regime panels (BULL/BEAR/CHOP badges)
+- **CITRINE Dashboard** (`citrine_dashboard.py`) at `http://167.233.16.202:8070` — portfolio equity, allocation, position health, signal frequency, kill-switch
+- **DIAMOND Dashboard** (`diamond_dashboard.py`) at `http://167.233.16.202:8080` — anomaly feed, paper trading portfolio
+- **Consolidated Dashboard** (`consolidated_dashboard.py`) at `http://167.233.16.202:8090` — retro-futuristic bento-grid overview of all projects (Swiss Design palette, glassmorphism cards, 12-column CSS Grid, JetBrains Mono font; redesigned Sprint 8)
 - **Daily Report** (`python daily_report.py`) — terminal report with maturity scores, project status (Mac-only)
 - **Check-In Dialogs** (`python daily_report.py --checkin`) — 5 macOS dialogs with live data, streak tracking (Mac-only)
 - All dashboards include HTTP `Cache-Control: no-store` headers to prevent stale browser caching
@@ -165,24 +165,26 @@ Why the gap?
 
 ---
 
-## Oracle Cloud Deployment (2026-03-20)
+## VM Deployment (Hetzner Cloud — CPX22 Falkenstein, migrated 2026-06-01)
 
-All 4 sub-projects run 24/7 on an Oracle Cloud Free Tier VM as systemd services.
+All active sub-projects run 24/7 on Hetzner Cloud as systemd services. Migrated from Oracle Cloud Always-Free (129.158.40.51, 1 OCPU, 1GB RAM) on 2026-06-01.
 
 ### VM Details
 | Property | Value |
 |----------|-------|
-| Shape | VM.Standard.E2.1.Micro (Always Free) |
-| CPU | 1 OCPU (AMD EPYC) |
-| RAM | 1 GB + 4 GB swap |
-| Disk | 100 GB boot volume (~89 GB free) |
+| Provider | Hetzner Cloud (CPX22, Falkenstein eu-central) |
+| CPU | 2 AMD vCPU |
+| RAM | 4 GB (no swap needed) |
+| Disk | 80 GB SSD (~75 GB available) |
 | OS | Ubuntu 22.04 |
-| IP | `129.158.40.51` |
+| IP | `167.233.16.202` |
+| Cost | $10.09/mo ($9.49 server + $0.60 IPv4) |
 | Python | `/home/ubuntu/miniconda3/bin/python` (Python 3.13) |
+| Firewall | Hetzner firewall-1: SSH (22) + ICMP + TCP 8060-8075 |
 
 ### SSH Access
 ```bash
-ssh -i ~/.ssh/hmm-trader.key ubuntu@129.158.40.51
+ssh -i ~/.ssh/hmm-trader.key ubuntu@167.233.16.202
 ```
 
 ### 8 systemd Services
@@ -238,8 +240,8 @@ Backward-compat symlinks preserve old paths:
 | `~/Documents/quant/diamond/` | `/home/ubuntu/kalshi-diamond/` |
 | `.env` (API keys) | `/home/ubuntu/HMM-Trader/.env`, `/home/ubuntu/kalshi-diamond/.env` |
 
-### Firewall (Oracle Cloud Security List)
-Ports 8060, 8070, 8080, and 8090 open for dashboard access. AGATE/BERYL/CITRINE trading services don't expose ports. **Important**: Security List rules must be on the correct Security List — the one attached to the instance's subnet. Navigate: Compute → Instances → instance → Primary VNIC → Subnet → Security Lists.
+### Firewall (Hetzner Cloud)
+Hetzner firewall `firewall-1` applied to server. Inbound rules: SSH (TCP 22), ICMP, TCP 8060-8075 (dashboards). All other inbound traffic dropped. Manage via Hetzner Console → Firewalls.
 
 ### Version Control (GitHub)
 **Repo**: `github.com/pjnks/hmm-trader` (private), **Branch**: `main`
@@ -249,13 +251,12 @@ Auto-push requires Full Disk Access for `/bin/bash` (System Settings > Privacy &
 
 ### Deploying Code Updates
 ```bash
-scp -i ~/.ssh/hmm-trader.key <file> ubuntu@129.158.40.51:/home/ubuntu/HMM-Trader/
-ssh -i ~/.ssh/hmm-trader.key ubuntu@129.158.40.51 "sudo systemctl restart <service-name>"
+scp -i ~/.ssh/hmm-trader.key <file> ubuntu@167.233.16.202:/home/ubuntu/HMM-Trader/
+ssh -i ~/.ssh/hmm-trader.key ubuntu@167.233.16.202 "sudo systemctl restart <service-name>"
 ```
 
-### RAM Constraints
-Total ~587 MB used of 956 MB available + 4 GB swap. Tight but stable. If more services needed, consider:
-- Oracle A1.Flex (free, 4 OCPU/24GB ARM) in another region
+### RAM (Hetzner CPX22)
+Total ~534 MB used of 3.7 GB available, zero swap. Comfortable headroom for FLUORITE and future services.
 - Hetzner CCX23 (~$25/mo, 4 dedicated CPU/16GB RAM) — could consolidate everything including optimizers
 
 ### Log Rotation
@@ -477,9 +478,9 @@ python daily_report.py --snapshot  # Save maturity scores to history (cron at mi
 python daily_report.py --checkin   # Interactive 5-step accountability check-in
 
 # Live monitoring dashboards (run on VM as systemd services, not locally)
-# http://129.158.40.51:8060  — AGATE + BERYL
-# http://129.158.40.51:8070  — CITRINE portfolio
-# http://129.158.40.51:8080  — DIAMOND anomaly feed
+# http://167.233.16.202:8060  — AGATE + BERYL
+# http://167.233.16.202:8070  — CITRINE portfolio
+# http://167.233.16.202:8080  — DIAMOND anomaly feed
 
 # Test notification channels (macOS popup + Pushover)
 python -m src.notifier

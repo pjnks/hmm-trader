@@ -1104,6 +1104,7 @@ def _build_metrics_over_time(all_trades: dict[str, pd.DataFrame],
                         "ROLLING WIN RATE", "ROLLING SHARPE"],
         vertical_spacing=0.14,
         horizontal_spacing=0.08,
+        shared_xaxes="all",
     )
 
     # Style subplot titles
@@ -1231,8 +1232,8 @@ def _build_metrics_over_time(all_trades: dict[str, pd.DataFrame],
     fig.update_yaxes(tickprefix="$", tickformat=",.0f", row=1, col=1)
     fig.update_yaxes(tickformat=".0%", row=2, col=1)
 
-    # X-axis date formatting — show month/day, skip hours when range > 1 day
-    for row, col in [(1, 1), (1, 2), (2, 1), (2, 2)]:
+    # X-axis date formatting — only bottom row visible with shared_xaxes
+    for row, col in [(2, 1), (2, 2)]:
         fig.update_xaxes(tickformat="%b %d", row=row, col=col)
 
     return fig
@@ -2064,9 +2065,9 @@ app.clientside_callback(
             return 'rgba(0,232,255,'+alpha+')';
         }
 
-        function trendColor(trace) {
+        function trendColor(trace, alpha) {
             var c = (trace.line && trace.line.color) || '#00e8ff';
-            return hexToRgba(c, 0.5);
+            return hexToRgba(c, alpha || 0.5);
         }
 
         function getRange(relay, prefix) {
@@ -2078,11 +2079,27 @@ app.clientside_callback(
             return null;
         }
 
+        function resolveArr(val) {
+            if (Array.isArray(val)) return val;
+            if (val && val.bdata && val.dtype) {
+                var raw = atob(val.bdata);
+                var buf = new ArrayBuffer(raw.length);
+                var u8 = new Uint8Array(buf);
+                for (var i=0; i<raw.length; i++) u8[i] = raw.charCodeAt(i);
+                if (val.dtype==='f8') return Array.from(new Float64Array(buf));
+                if (val.dtype==='f4') return Array.from(new Float32Array(buf));
+                if (val.dtype==='i4') return Array.from(new Int32Array(buf));
+            }
+            return val;
+        }
+
         function filterData(trace, range) {
-            if (!trace || !trace.y || trace.y.length < 3) return null;
+            if (!trace) return null;
+            var ys = resolveArr(trace.y);
+            if (!ys || ys.length < 3) return null;
             var rXs=[], rYs=[], rXO=[];
-            for (var i=0; i<trace.y.length; i++) {
-                if (trace.y[i]==null || !isFinite(trace.y[i])) continue;
+            for (var i=0; i<ys.length; i++) {
+                if (ys[i]==null || !isFinite(ys[i])) continue;
                 var inR = true;
                 if (range) {
                     var xv = trace.x[i];
@@ -2095,7 +2112,7 @@ app.clientside_callback(
                         inR = xv >= range[0] && xv <= range[1];
                     }
                 }
-                if (inR) { rXs.push(rXs.length); rYs.push(trace.y[i]); rXO.push(trace.x[i]); }
+                if (inR) { rXs.push(rXs.length); rYs.push(ys[i]); rXO.push(trace.x[i]); }
             }
             if (rXs.length < 3) return null;
             return {xs:rXs, ys:rYs, xOrig:rXO};
@@ -2136,7 +2153,7 @@ app.clientside_callback(
             nf.data = nf.data.filter(function(t){
                 return !(t.name && t.name.indexOf('Trend')===0);
             });
-            var vis = null;
+            var visList = [];
             for (var i=0; i<nf.data.length; i++) {
                 var nm = nf.data[i].name || '';
                 if (nm === 'COMBINED') {
@@ -2145,12 +2162,13 @@ app.clientside_callback(
                     var lg = nf.data[i].legendgroup || '';
                     var m = isMatch(nm, lg, active);
                     nf.data[i].visible = m;
-                    if (m && single && addTrend) vis = nf.data[i];
+                    if (m && addTrend) visList.push(nf.data[i]);
                 }
             }
-            if (single && addTrend && vis) {
-                var fd = filterData(vis, xRange);
-                var trend = makeTrend(fd, trendColor(vis));
+            var tAlpha = visList.length > 1 ? 0.3 : 0.5;
+            for (var vi=0; vi<visList.length; vi++) {
+                var fd = filterData(visList[vi], xRange);
+                var trend = makeTrend(fd, trendColor(visList[vi], tAlpha));
                 if (trend) nf.data.push(trend);
             }
             return nf;
@@ -2171,20 +2189,27 @@ app.clientside_callback(
                 if (nm === 'COMBINED') { t.visible = !single; continue; }
                 var m = isMatch(nm, lg, active);
                 t.visible = m;
-                if (m && single) targets.push(t);
+                if (m) targets.push(t);
             }
-            if (single) {
-                for (var j=0; j<targets.length; j++) {
-                    var tt = targets[j];
-                    var xa = tt.xaxis || 'x';
-                    var ya = tt.yaxis || 'y';
-                    if (xa==='x2' && ya==='y2') continue;
-                    var axKey = xa==='x' ? 'xaxis' : xa.replace('x','xaxis');
-                    var range = relayoutObj ? getRange(relayoutObj, axKey) : null;
-                    var fd = filterData(tt, range);
-                    var trend = makeTrend(fd, trendColor(tt), xa, ya);
-                    if (trend) nf.data.push(trend);
+
+            var sharedRange = null;
+            if (relayoutObj) {
+                for (var axIdx=0; axIdx<4; axIdx++) {
+                    var axN = axIdx===0 ? 'xaxis' : 'xaxis'+(axIdx+1);
+                    var r = getRange(relayoutObj, axN);
+                    if (r) { sharedRange = r; break; }
                 }
+            }
+
+            var tAlpha = targets.length > 4 ? 0.3 : 0.5;
+            for (var j=0; j<targets.length; j++) {
+                var tt = targets[j];
+                var xa = tt.xaxis || 'x';
+                var ya = tt.yaxis || 'y';
+                if (xa==='x2' && ya==='y2') continue;
+                var fd = filterData(tt, sharedRange);
+                var trend = makeTrend(fd, trendColor(tt, tAlpha), xa, ya);
+                if (trend) nf.data.push(trend);
             }
             return nf;
         }
@@ -2199,14 +2224,12 @@ app.clientside_callback(
 
         // Zoom on equity chart
         if (trigger.indexOf('equity-chart.relayoutData') !== -1) {
-            if (!single) return [NU,NU,NU,NU].concat(NUS);
             var r = getRange(eqRelayout, 'xaxis');
             return [processChart(equityFig, activeProjects, true, r),
                     NU, NU, NU].concat(NUS);
         }
         // Zoom on health chart
         if (trigger.indexOf('health-chart.relayoutData') !== -1) {
-            if (!single) return [NU,NU,NU,NU].concat(NUS);
             var r = getRange(healthRelayout, 'xaxis');
             return [NU, NU,
                     processChart(healthFig, activeProjects, true, r),
@@ -2214,7 +2237,6 @@ app.clientside_callback(
         }
         // Zoom on metrics chart
         if (trigger.indexOf('metrics-time-chart.relayoutData') !== -1) {
-            if (!single) return [NU,NU,NU,NU].concat(NUS);
             return [NU, NU, NU,
                     processMetrics(metricsTimeFig, activeProjects, metricsRelayout)
                    ].concat(NUS);

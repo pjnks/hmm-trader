@@ -1,0 +1,427 @@
+{
+  "score_date": "2026-06-02",
+  "exported_at": "2026-06-02T02:13:55",
+  "ticker_count": 60,
+  "scores": {
+    "EFOR": {
+      "composite_score": 58.3,
+      "insider_score": 100.0,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "EROK": {
+      "composite_score": 58.3,
+      "insider_score": 100.0,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "EVTC": {
+      "composite_score": 58.22,
+      "insider_score": 100.0,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "FSSL": {
+      "composite_score": 58.22,
+      "insider_score": 100.0,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "FRPT": {
+      "composite_score": 57.94,
+      "insider_score": 100.0,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "FCN": {
+      "composite_score": 57.93,
+      "insider_score": 100.0,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "GABC": {
+      "composite_score": 57.92,
+      "insider_score": 100.0,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "EPAM": {
+      "composite_score": 57.9,
+      "insider_score": 100.0,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "GAMB": {
+      "composite_score": 57.79,
+      "insider_score": 100.0,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "CELH": {
+      "composite_score": 57.76,
+      "insider_score": 100.0,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "MDB": {
+      "composite_score": 55.77,
+      "insider_score": 23.08,
+      "tripwire_score": 100.0,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "ADSK": {
+      "composite_score": 55.41,
+      "insider_score": 23.08,
+      "tripwire_score": 99.14,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "HEI": {
+      "composite_score": 53.54,
+      "insider_score": 23.08,
+      "tripwire_score": 94.76,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "HEI.A": {
+      "composite_score": 53.54,
+      "insider_score": 23.08,
+      "tripwire_score": 94.76,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "SNOW": {
+      "composite_score": 51.77,
+      "insider_score": 23.08,
+      "tripwire_score": 90.59,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "PHR": {
+      "composite_score": 49.67,
+      "insider_score": 23.08,
+      "tripwire_score": 85.65,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "DY": {
+      "composite_score": 49.21,
+      "insider_score": 23.08,
+      "tripwire_score": 84.57,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "NCNO": {
+      "composite_score": 48.75,
+      "insider_score": 23.08,
+      "tripwire_score": 83.49,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "CRM": {
+      "composite_score": 47.89,
+      "insider_score": 23.08,
+      "tripwire_score": 81.46,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "BRZE": {
+      "composite_score": 47.21,
+      "insider_score": 23.08,
+      "tripwire_score": 79.87,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "TJX": {
+      "composite_score": 46.38,
+      "insider_score": 23.08,
+      "tripwire_score": 77.91,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "OKTA": {
+      "composite_score": 45.39,
+      "insider_score": 23.08,
+      "tripwire_score": 75.58,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "MOV": {
+      "composite_score": 43.67,
+      "insider_score": 23.08,
+      "tripwire_score": 71.54,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "NTNX": {
+      "composite_score": 42.96,
+      "insider_score": 23.08,
+      "tripwire_score": 69.86,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "HQY": {
+      "composite_score": 42.93,
+      "insider_score": 23.08,
+      "tripwire_score": 69.78,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "WMT": {
+      "composite_score": 42.64,
+      "insider_score": 23.08,
+      "tripwire_score": 69.12,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "PD": {
+      "composite_score": 41.76,
+      "insider_score": 23.08,
+      "tripwire_score": 67.03,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "S": {
+      "composite_score": 41.1,
+      "insider_score": 0.0,
+      "tripwire_score": 96.7,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "HPQ": {
+      "composite_score": 40.67,
+      "insider_score": 23.08,
+      "tripwire_score": 64.47,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "AII": {
+      "composite_score": 40.45,
+      "insider_score": 69.23,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "FMNB": {
+      "composite_score": 40.45,
+      "insider_score": 69.23,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "QTTB": {
+      "composite_score": 40.42,
+      "insider_score": 69.23,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "ABTC": {
+      "composite_score": 40.37,
+      "insider_score": 69.23,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "FOA": {
+      "composite_score": 40.37,
+      "insider_score": 69.23,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "FRST": {
+      "composite_score": 40.35,
+      "insider_score": 69.23,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "FG": {
+      "composite_score": 40.1,
+      "insider_score": 69.23,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "EOSE": {
+      "composite_score": 40.07,
+      "insider_score": 69.23,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "ELMT": {
+      "composite_score": 40.04,
+      "insider_score": 69.23,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "FUN": {
+      "composite_score": 40.02,
+      "insider_score": 69.23,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "ABR": {
+      "composite_score": 40.0,
+      "insider_score": 69.23,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "FND": {
+      "composite_score": 39.99,
+      "insider_score": 69.23,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "ELAN": {
+      "composite_score": 39.98,
+      "insider_score": 69.23,
+      "tripwire_score": 0.0,
+      "cluster_detected": 1,
+      "has_earnings_event": 0
+    },
+    "DLTR": {
+      "composite_score": 37.71,
+      "insider_score": 23.08,
+      "tripwire_score": 57.51,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "LOW": {
+      "composite_score": 36.91,
+      "insider_score": 23.08,
+      "tripwire_score": 55.62,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "BJ": {
+      "composite_score": 36.15,
+      "insider_score": 23.08,
+      "tripwire_score": 53.84,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "BBWI": {
+      "composite_score": 35.32,
+      "insider_score": 23.08,
+      "tripwire_score": 51.88,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "ASAN": {
+      "composite_score": 33.86,
+      "insider_score": 0.0,
+      "tripwire_score": 79.68,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "DE": {
+      "composite_score": 32.77,
+      "insider_score": 23.08,
+      "tripwire_score": 45.89,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "CPRT": {
+      "composite_score": 31.82,
+      "insider_score": 23.08,
+      "tripwire_score": 43.66,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "BOX": {
+      "composite_score": 31.5,
+      "insider_score": 0.0,
+      "tripwire_score": 74.11,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "HD": {
+      "composite_score": 31.26,
+      "insider_score": 23.08,
+      "tripwire_score": 42.34,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "GAP": {
+      "composite_score": 30.25,
+      "insider_score": 0.0,
+      "tripwire_score": 71.19,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "BURL": {
+      "composite_score": 28.86,
+      "insider_score": 0.0,
+      "tripwire_score": 67.9,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "MRVL": {
+      "composite_score": 28.85,
+      "insider_score": 23.08,
+      "tripwire_score": 36.67,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "SNPS": {
+      "composite_score": 28.67,
+      "insider_score": 23.08,
+      "tripwire_score": 36.23,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "SMTC": {
+      "composite_score": 28.16,
+      "insider_score": 0.0,
+      "tripwire_score": 66.27,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "HRL": {
+      "composite_score": 27.72,
+      "insider_score": 23.08,
+      "tripwire_score": 34.0,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "RICK": {
+      "composite_score": 20.37,
+      "insider_score": 23.08,
+      "tripwire_score": 16.7,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "TGT": {
+      "composite_score": 15.25,
+      "insider_score": 0.0,
+      "tripwire_score": 35.87,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    },
+    "ZS": {
+      "composite_score": 14.92,
+      "insider_score": 0.0,
+      "tripwire_score": 35.11,
+      "cluster_detected": 0,
+      "has_earnings_event": 1
+    }
+  }
+}
