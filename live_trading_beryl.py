@@ -268,6 +268,27 @@ class BerylLiveEngine:
                 except Exception:
                     pass  # Column already exists — idempotent
 
+            # FluoriteBridge shadow decisions table (6-week experiment)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS fluorite_decisions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    ticker TEXT NOT NULL,
+                    strategy TEXT NOT NULL,
+                    hmm_regime TEXT,
+                    hmm_confidence REAL,
+                    composite_score REAL,
+                    insider_score REAL,
+                    tripwire_score REAL,
+                    cluster_detected INTEGER,
+                    has_earnings_event INTEGER,
+                    calculated_boost REAL,
+                    position_held INTEGER,
+                    signal TEXT
+                )
+            """)
+            conn.commit()
+
     # ── State Restoration ──────────────────────────────────────────────────
 
     def _restore_state_from_db(self) -> None:
@@ -575,6 +596,62 @@ class BerylLiveEngine:
                  f"{sum(1 for s in signals if s['regime'] == 'BULL')} BULL, "
                  f"{sum(1 for s in signals if s['regime'] == 'BEAR')} BEAR")
         return signals
+
+    def _log_fluorite_shadow(self, signals: list[dict]) -> None:
+        """
+        FLUORITE cross-sectional bridge — shadow logging only.
+        Calls FluoriteBridge for all scanned tickers, logs what it WOULD
+        have boosted without modifying live execution. 6-week experiment.
+        """
+        try:
+            from src.fluorite_bridge import FluoriteBridge
+            bridge = FluoriteBridge()
+            all_tickers = [s["ticker"] for s in signals if s.get("ticker")]
+            f_detail = bridge.fetch_boosts_with_detail(all_tickers)
+
+            if not f_detail:
+                log.debug("  [FLUORITE] No scores available (neutral)")
+                return
+
+            boosted_count = sum(1 for d in f_detail.values() if d["boost"] != 1.0)
+            log.info(f"  [FLUORITE shadow] {len(f_detail)} scored, "
+                     f"{boosted_count} would boost")
+
+            # Build signal lookup
+            sig_map = {s["ticker"]: s for s in signals}
+            now = datetime.now(tz=timezone.utc).isoformat()
+            rows = []
+            for ticker, detail in f_detail.items():
+                sig = sig_map.get(ticker, {})
+                rows.append((
+                    now,
+                    ticker,
+                    "BERYL",
+                    sig.get("regime"),
+                    round(sig.get("confidence", 0), 4),
+                    round(detail["composite_score"], 2),
+                    round(detail["insider_score"], 2),
+                    round(detail["tripwire_score"], 2),
+                    detail["cluster_detected"],
+                    detail["has_earnings_event"],
+                    round(detail["boost"], 4),
+                    1 if ticker in self.positions else 0,
+                    sig.get("signal", "HOLD"),
+                ))
+
+            with sqlite3.connect(self.db_path) as conn:
+                conn.executemany(
+                    """INSERT INTO fluorite_decisions
+                    (timestamp, ticker, strategy, hmm_regime, hmm_confidence,
+                     composite_score, insider_score, tripwire_score,
+                     cluster_detected, has_earnings_event, calculated_boost,
+                     position_held, signal)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    rows,
+                )
+                conn.commit()
+        except Exception as e:
+            log.warning(f"  [FLUORITE] Shadow log failed (non-fatal): {e}")
 
     def _pick_best_buys(self, signals: list[dict], n_slots: int) -> list[dict]:
         """
@@ -1150,6 +1227,7 @@ class BerylLiveEngine:
 
                 if signals and isinstance(signals, list) and len(signals) > 0:
                     self._log_scan_journal(signals)
+                    self._log_fluorite_shadow(signals)  # FLUORITE bridge shadow log
                     self.process_signals(signals)
                     self._write_status(signals)  # AFTER trades so positions are current
                     self._log_snapshot(signals)   # Persist state for restart recovery

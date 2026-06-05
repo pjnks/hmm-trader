@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FLUORITE (F1) &mdash; Master Architecture Plan</title>
+<style>
+:root {
+  --neon-green: #00ff9f;
+  --neon-cyan: #00f0ff;
+  --neon-pink: #ff2d6b;
+  --neon-yellow: #ffe156;
+  --neon-purple: #b388ff;
+  --dark-bg: #030508;
+  --panel: #0a1520;
+  --border: #1a3040;
+  --text: #d0eaf5;
+  --dim: #8ab4c8;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: var(--dark-bg); color: var(--text); font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace; line-height: 1.6; padding: 2rem; max-width: 960px; margin: 0 auto; }
+h1 { color: var(--neon-cyan); font-size: 1.8rem; margin-bottom: 0.5rem; letter-spacing: -0.5px; }
+h2 { color: var(--neon-green); font-size: 1.3rem; margin: 2.5rem 0 1rem 0; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+h3 { color: var(--neon-cyan); font-size: 1.05rem; margin: 1.5rem 0 0.75rem 0; }
+h4 { color: var(--neon-yellow); font-size: 0.95rem; margin: 1.2rem 0 0.5rem 0; }
+p, li { font-size: 0.85rem; margin-bottom: 0.5rem; }
+ul, ol { padding-left: 1.5rem; }
+a { color: var(--neon-cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { background: #0d1f2d; padding: 2px 6px; border-radius: 3px; font-size: 0.82rem; color: var(--neon-green); }
+pre { background: #0d1f2d; padding: 1rem; border-radius: 6px; overflow-x: auto; margin: 0.75rem 0; font-size: 0.8rem; border: 1px solid var(--border); }
+.header-block { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem; }
+.header-block .date { color: var(--dim); font-size: 0.8rem; }
+.header-block .scope { color: var(--neon-yellow); font-size: 0.85rem; margin-top: 0.3rem; }
+.tldr { background: linear-gradient(135deg, #0a1520 0%, #0d1a28 100%); border-left: 3px solid var(--neon-green); padding: 1rem 1.5rem; margin: 1.5rem 0; border-radius: 0 6px 6px 0; }
+.tldr li { color: var(--text); }
+.metric-row { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
+.metric-card { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 1rem; flex: 1; min-width: 140px; text-align: center; }
+.metric-card .label { font-size: 0.7rem; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
+.metric-card .value { font-size: 1.3rem; font-weight: bold; margin-top: 0.2rem; }
+.metric-card .value.green { color: var(--neon-green); }
+.metric-card .value.cyan { color: var(--neon-cyan); }
+.metric-card .value.yellow { color: var(--neon-yellow); }
+.metric-card .value.pink { color: var(--neon-pink); }
+table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.82rem; }
+th { background: #0d1f2d; color: var(--neon-cyan); text-align: left; padding: 0.5rem 0.75rem; border-bottom: 2px solid var(--border); font-weight: 600; }
+td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #0f1a25; }
+tr:hover { background: #0a1822; }
+.bar-container { background: #0d1f2d; border-radius: 3px; height: 18px; position: relative; margin: 2px 0; }
+.bar-fill { height: 100%; border-radius: 3px; display: inline-block; vertical-align: middle; }
+.pipeline-box { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin: 1rem 0; }
+.pipeline-a { border-left: 3px solid var(--neon-cyan); }
+.pipeline-b { border-left: 3px solid var(--neon-pink); }
+.shared { border-left: 3px solid var(--neon-purple); }
+.gap-box { background: #1a0a0a; border: 1px solid #3a1a1a; border-radius: 6px; padding: 1rem; margin: 0.75rem 0; }
+.gap-box .fix { color: var(--neon-green); font-weight: bold; }
+.phase-grid { display: grid; grid-template-columns: auto 1fr auto; gap: 0 1rem; align-items: start; margin: 1rem 0; }
+.phase-num { color: var(--neon-cyan); font-weight: bold; font-size: 0.85rem; padding-top: 0.3rem; }
+.phase-desc { font-size: 0.82rem; padding: 0.3rem 0; border-bottom: 1px solid #0f1a25; }
+.phase-weeks { color: var(--dim); font-size: 0.8rem; padding-top: 0.3rem; white-space: nowrap; }
+.signal-module { background: #0a1520; border: 1px solid var(--border); border-radius: 6px; padding: 1rem; margin: 0.5rem 0; }
+.signal-module .name { color: var(--neon-green); font-weight: bold; font-size: 0.9rem; }
+.signal-module .cost { color: var(--dim); font-size: 0.75rem; float: right; }
+.decision-table { margin: 1rem 0; }
+.decision-table td:first-child { font-weight: bold; color: var(--neon-yellow); width: 30%; }
+.tier-label { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.72rem; font-weight: bold; letter-spacing: 0.5px; }
+.tier-1 { background: #0a2a0a; color: var(--neon-green); }
+.tier-2 { background: #0a1a2a; color: var(--neon-cyan); }
+.tier-3 { background: #2a0a1a; color: var(--neon-pink); }
+.tier-4 { background: #1a1a0a; color: var(--neon-yellow); }
+.arch-flow { background: #0d1f2d; border: 1px solid var(--border); border-radius: 6px; padding: 1rem; margin: 1rem 0; font-size: 0.78rem; white-space: pre; overflow-x: auto; line-height: 1.4; }
+.footnote { color: var(--dim); font-size: 0.75rem; margin-top: 2rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+</style>
+</head>
+<body>
+
+<div class="header-block">
+  <h1>FLUORITE (F1) &mdash; Master Architecture Plan</h1>
+  <div class="date">2026-05-16 &bull; Alt-Data Dual-Pipeline Trading System &bull; ~4,000 Ticker Universe</div>
+  <div class="scope">Synthesized from 4 independent architectural reviews &bull; Grounded against existing HMM-Trader infrastructure</div>
+</div>
+
+<div class="tldr">
+  <h3 style="color:var(--neon-green); margin-top:0;">TL;DR</h3>
+  <ul>
+    <li><strong>What:</strong> A dual-pipeline alt-data trading system scanning ~4,000 US equities (Russell 3000 + micro-caps) using LLM document analysis, insider clusters, supply chain graphs, and digital footprint signals.</li>
+    <li><strong>Why:</strong> Small/micro-caps have massive information asymmetry &mdash; when an LLM reads a bullish 8-K from a $80M company, you may be the <em>only</em> entity analyzing that document in the first 10 minutes.</li>
+    <li><strong>How:</strong> Pipeline A (daily batch) finds what is <em>becoming</em> interesting. Pipeline B (intraday event sniper) catches what just <em>became</em> urgent. A shared Risk &amp; Portfolio Manager coordinates execution.</li>
+    <li><strong>Where:</strong> New standalone repo <code>~/Documents/quant/fluorite/</code>, imports shared modules from <code>trading-core/</code>. Mac = brain. VM = lightweight execution relay.</li>
+    <li><strong>Cost:</strong> ~$30&ndash;90/month incremental (Claude API for Tier 3 scoring). All other data sources free.</li>
+  </ul>
+</div>
+
+<div class="metric-row">
+  <div class="metric-card"><div class="label">Universe</div><div class="value cyan">~4,000</div></div>
+  <div class="metric-card"><div class="label">Pipelines</div><div class="value green">2</div></div>
+  <div class="metric-card"><div class="label">Signal Modules</div><div class="value yellow">5</div></div>
+  <div class="metric-card"><div class="label">Max Positions</div><div class="value cyan">12</div></div>
+  <div class="metric-card"><div class="label">Monthly Cost</div><div class="value green">$30&ndash;90</div></div>
+  <div class="metric-card"><div class="label">Build Phases</div><div class="value yellow">8</div></div>
+</div>
+
+<!-- ════════════════════════════════════════════════════ -->
+<h2>1. Alpha Thesis</h2>
+
+<p>The Nasdaq 100 is fought over by armies of PhDs with co-located servers. A $50M micro-cap is fought over by retail traders and stale algorithms. The <strong>information asymmetry</strong> is the edge.</p>
+
+<p>Grinold's Fundamental Law of Active Management: <strong>IR = IC &times; &radic;Breadth</strong>. CITRINE's 0.90 confidence gate on 98 tickers produces ~7 entries/day. FLUORITE's relaxed alt-data funnel on 4,000 tickers produces 30&ndash;60 scored candidates and 5&ndash;12 positions &mdash; a <strong>6.4&times; breadth multiplier</strong>. Even with lower per-signal IC, the information ratio can be higher.</p>
+
+<p>This is not a traditional quant system. It is an <strong>Automated Analyst</strong> that reads thousands of filings, tracks insider behavior, maps supply chains, and monitors digital footprints &mdash; things a human analyst can do for 10 companies but not 4,000.</p>
+
+<!-- ════════════════════════════════════════════════════ -->
+<h2>2. System Architecture</h2>
+
+<div class="arch-flow">
+<span style="color:var(--neon-cyan)">PIPELINE A: DAILY SLOW GRIND</span>              <span style="color:var(--neon-pink)">PIPELINE B: INTRADAY EVENT SNIPER</span>
+<span style="color:var(--dim)">Runs: after market close</span>                      <span style="color:var(--dim)">Runs: 9:30am&ndash;4pm ET continuously</span>
+<span style="color:var(--dim)">Compute: Mac</span>                                   <span style="color:var(--dim)">Compute: Mac (or 2nd Oracle VM)</span>
+
+EOD Bulk Bars (4k)                              SEC EDGAR RSS Feed
+       &darr;                                            &darr;
+<span style="color:var(--neon-green)">[TIER 1]</span> Liquidity Filter &rarr; ~1,500            <span style="color:var(--neon-green)">[TIER 1]</span> Is it an 8-K? Volume spike?
+       &darr;                                            &darr;
+<span style="color:var(--neon-cyan)">[TIER 2]</span> Alt-Data Net &rarr; ~50&ndash;80                <span style="color:var(--neon-cyan)">[TIER 2]</span> Passes liquidity gate?
+       &darr;                                            &darr;
+<span style="color:var(--neon-pink)">[TIER 3]</span> LLM Batch Analysis &rarr; ~20&ndash;30          <span style="color:var(--neon-pink)">[TIER 3]</span> LLM Rapid Reflex (&lt;5s)
+       &darr;                                            &darr;
+<span style="color:var(--neon-yellow)">[TIER 4]</span> Cross-Sectional Ranker                  <span style="color:var(--neon-yellow)">[TIER 4]</span> <span style="color:var(--neon-pink)">BYPASSES RANKER</span> &rarr; Direct to
+       &darr;                                                    Portfolio Manager
+       &darr;
+       &darr;          <span style="color:var(--neon-purple)">&larr;&larr;&larr; SHARED RISK &amp; PORTFOLIO MANAGER &rarr;&rarr;&rarr;</span>
+       &darr;                            &darr;
+       &darr;                   <span style="color:var(--neon-yellow)">EXECUTION ENGINE</span>
+       &darr;                   Limit orders only
+       &darr;                   Liquidity scalar
+       &darr;                   Sector caps (max 3)
+       &darr;                   Max 12 positions
+       &darr;
+<span style="color:var(--dim)">FEEDBACK: Pipeline B positions feed into Pipeline A's next nightly scan</span>
+<span style="color:var(--dim)">          (don't double-up, track thesis integrity)</span>
+</div>
+
+<h3>Critical Design Decision: Risk Manager, Not Shared Ranker</h3>
+
+<p>Pipeline B cannot wait for Pipeline A's end-of-day cross-sectional ranking. If an 8-K drops at 10:15 AM announcing an FDA approval, the alpha decays in <em>seconds</em>. Therefore:</p>
+<ul>
+  <li><strong>Pipeline A</strong> goes through the cross-sectional ranker (buying the top basket at next-day open).</li>
+  <li><strong>Pipeline B</strong> bypasses the ranker entirely. If LLM conviction &gt;90, it immediately requests capital from the shared Portfolio Manager. As long as sector/exposure caps aren't breached, Pipeline B executes instantly.</li>
+  <li><strong>Pipeline B overrides Pipeline A</strong> for the same ticker on the same day. An 8-K filed at 10:30am is strictly more informative than last night's alt-data scan. Fusion scoreboard has a <code>last_updated</code> timestamp; B events overwrite with a freshness bonus.</li>
+</ul>
+
+<!-- ════════════════════════════════════════════════════ -->
+<h2>3. Tier 1 &mdash; Quantitative Gate</h2>
+
+<div class="metric-row">
+  <div class="metric-card"><div class="label">Input</div><div class="value cyan">~4,000</div></div>
+  <div class="metric-card"><div class="label">Output</div><div class="value green">~1,500</div></div>
+  <div class="metric-card"><div class="label">Cost</div><div class="value green">$0</div></div>
+  <div class="metric-card"><div class="label">Speed</div><div class="value green">&lt;5s</div></div>
+</div>
+
+<p><span class="tier-label tier-1">TIER 1</span> removes untradeable names before anything expensive runs.</p>
+
+<table>
+  <tr><th>Filter</th><th>Threshold</th><th>Rationale</th></tr>
+  <tr><td>Avg daily dollar volume</td><td>&gt; $1M/day</td><td>Below this, your order IS the market</td></tr>
+  <tr><td>Market cap</td><td>&gt; $30M</td><td>Eliminates penny stocks and shells</td></tr>
+  <tr><td>Bid-ask spread</td><td>&lt; 1.5% of mid</td><td>Slippage eats the edge otherwise</td></tr>
+  <tr><td>Halted / dark / OTC</td><td>Excluded</td><td>Untradeable</td></tr>
+  <tr><td>Price &gt; 20-day SMA</td><td>Soft score</td><td>Basic momentum pre-filter</td></tr>
+  <tr><td>Volume today / 20d avg</td><td>Soft score</td><td>Activity ratio for Pipeline B tripwires</td></tr>
+</table>
+
+<p><strong>Data source:</strong> Polygon grouped daily endpoint (pulls all tickers in one API call). For Pipeline B intraday: Polygon snapshot API for real-time volume/price.</p>
+
+<!-- ════════════════════════════════════════════════════ -->
+<h2>4. Tier 2 &mdash; Signal Modules</h2>
+
+<div class="metric-row">
+  <div class="metric-card"><div class="label">Input</div><div class="value cyan">~1,500</div></div>
+  <div class="metric-card"><div class="label">Output</div><div class="value green">50&ndash;80</div></div>
+  <div class="metric-card"><div class="label">Cost</div><div class="value green">~$0</div></div>
+  <div class="metric-card"><div class="label">Speed</div><div class="value green">2&ndash;5 min</div></div>
+</div>
+
+<p><span class="tier-label tier-2">TIER 2</span> runs five independent signal modules. Each produces a 0&ndash;100 score per ticker.</p>
+
+<div class="signal-module">
+  <div class="name">A. Insider Cluster Detector (Form 4) <span class="cost">Cost: $0 &bull; You have this pipeline</span></div>
+  <p style="margin-top:0.5rem">You already ingest Form 4 data via <code>src/alternative_data.py</code> for BERYL/CITRINE. Enhancement: <strong>cluster detection</strong> &mdash; 2+ insiders buying within 72 hours = conviction multiplier. A CFO buying $200K of a $80M company is a 0.25% personal position &mdash; that's a screaming signal.</p>
+  <p><strong>Why primary:</strong> Highest-conviction, lowest-cost signal in the entire system. On small caps, insider clusters are far more informative than on mega-caps. Insiders know their business better than any model.</p>
+</div>
+
+<div class="signal-module">
+  <div class="name">B. Supply Chain Ripple Graph <span class="cost">Cost: $0 &bull; JSON adjacency list</span></div>
+  <p style="margin-top:0.5rem">JSON adjacency list mapping apex companies to their suppliers: <code>NVDA &rarr; [TSM, AVGO, MRVL, ARM]</code>, <code>AAPL &rarr; [AVGO, TSM, QCOM, HON]</code>. ~500 edges covering NDX100 apex nodes to small-cap supply chain.</p>
+  <p><strong>Screener logic:</strong> When an apex node gaps &gt;3%, flag suppliers that haven't moved yet. Ripple window: 24&ndash;48h for large caps, <strong>3&ndash;5 days for small caps</strong> (slower information propagation). Start simple with ~500 edges; no graph DB needed at this scale.</p>
+  <p><strong>Data sources:</strong> 10-K "major customers" disclosures, Wikipedia supplier lists, FactSet public data.</p>
+</div>
+
+<div class="signal-module">
+  <div class="name">C. Digital Footprint Tracker <span class="cost">Cost: $0 &bull; Free APIs</span></div>
+  <p style="margin-top:0.5rem">Detects slow divergences that events and filings miss. Three sub-signals:</p>
+  <ul>
+    <li><strong>Google Trends 90-day momentum</strong> (free API, 5 queries/min) &mdash; search interest acceleration for company/product names</li>
+    <li><strong>App store rank delta</strong> &mdash; consumer-facing tickers (AAPL, AMZN, NFLX, META, gig-economy, fintech)</li>
+    <li><strong>Job posting velocity</strong> (Indeed/LinkedIn) &mdash; expansion signal before it hits revenue</li>
+  </ul>
+  <p><strong>Why it works:</strong> By the time Q3 revenue is reported, that data is 3 months old. Digital footprints are real-time revenue proxies.</p>
+</div>
+
+<div class="signal-module">
+  <div class="name">D. Event Tripwire Flags <span class="cost">Cost: $0 &bull; RSS + API</span></div>
+  <p style="margin-top:0.5rem">Cheap binary triggers for Pipeline B (intraday) and Pipeline A (overnight catch-up):</p>
+  <ul>
+    <li><strong>8-K filed in last 24h</strong> &mdash; flag + download text for Tier 3 LLM</li>
+    <li><strong>Volume &gt; 3&times; 20-day avg</strong> &mdash; flag (something is happening)</li>
+    <li><strong>Price gap &gt; 5% on open</strong> &mdash; flag (news overnight)</li>
+    <li><strong>Earnings in next 48h</strong> &mdash; flag (pre-position or avoid)</li>
+  </ul>
+  <p><strong>Pipeline B specific:</strong> SEC EDGAR live RSS feed listener. Fires within seconds of an 8-K filing. This is the primary trigger for the intraday sniper.</p>
+</div>
+
+<div class="signal-module">
+  <div class="name">E. Sector Regime Context (HMM, adapted) <span class="cost">Cost: $0 &bull; Reuse existing</span></div>
+  <p style="margin-top:0.5rem">Run HMM on <strong>13 sector ETFs</strong>: XLK, XLF, XLE, XLV, XLI, XLC, XLY, XLP, XLRE, XLB, XLU + IWM (small-cap index) + QQQ (tech benchmark). Each ticker inherits its sector's regime state.</p>
+  <p><strong>Regime gate:</strong> BEAR sector = raise LLM conviction threshold from 70 &rarr; 90. Don't take alt-data long signals into adverse sector regimes. This is the filter that kills most alt-data strategies &mdash; they trade into bear markets and get crushed.</p>
+  <p><strong>Implementation:</strong> Consume regime output from existing BERYL/CITRINE HMM infrastructure. Don't re-run the HMM &mdash; read their output files.</p>
+</div>
+
+<h3>Tier 2 Composite Score</h3>
+<pre>
+composite = (
+    w_A * insider_cluster_score     # 0.30 (highest weight &mdash; strongest signal)
+  + w_B * supply_chain_ripple_score # 0.20
+  + w_C * digital_footprint_score   # 0.15
+  + w_D * event_tripwire_score      # 0.25 (high weight for Pipeline B events)
+  + w_E * sector_regime_bonus       # 0.10 (multiplicative gate, not additive)
+)
+
+# Weights are initial estimates. Calibrate after 60 days of shadow data.
+# Sector regime is actually applied as a gate multiplier:
+#   BULL sector: composite *= 1.0
+#   CHOP sector: composite *= 0.8
+#   BEAR sector: composite *= 0.5 (effectively kills most signals)
+</pre>
+
+<!-- ════════════════════════════════════════════════════ -->
+<h2>5. Tier 3 &mdash; LLM Deep Analysis</h2>
+
+<div class="metric-row">
+  <div class="metric-card"><div class="label">Input</div><div class="value cyan">50&ndash;80</div></div>
+  <div class="metric-card"><div class="label">Output</div><div class="value green">20&ndash;30</div></div>
+  <div class="metric-card"><div class="label">Cost/day</div><div class="value yellow">$15&ndash;45</div></div>
+  <div class="metric-card"><div class="label">Speed</div><div class="value yellow">1&ndash;2 min/ticker</div></div>
+</div>
+
+<p><span class="tier-label tier-3">TIER 3</span> is the expensive layer. Only survivors of Tier 2 reach here.</p>
+
+<h4>Document Selection Logic</h4>
+<table>
+  <tr><th>Condition</th><th>Document Read</th><th>Focus</th></tr>
+  <tr><td>8-K filed</td><td>Full 8-K text</td><td>Catalyst materiality, contract size, regulatory impact</td></tr>
+  <tr><td>Earnings recent (&lt;7d)</td><td>Earnings transcript</td><td>Evasion index, sentiment delta, forward guidance tone</td></tr>
+  <tr><td>Neither</td><td>Latest 10-Q risk factors</td><td>Compare to prior quarter, flag new risks or removals</td></tr>
+</table>
+
+<h4>Structured Output Schema</h4>
+<pre>
+{
+  "ticker": "ACME",
+  "conviction": 82,               // 0&ndash;100
+  "catalyst_type": "contract_win", // contract_win, guidance_raise, insider_cluster,
+                                   // supply_chain, product_launch, fda_approval,
+                                   // earnings_beat, restructuring
+  "time_horizon_days": 5,         // expected alpha window
+  "risk_flags": ["thin_liquidity", "earnings_in_3d", "sector_bear"],
+  "one_line_thesis": "Won $40M DoD contract, 60% of annual revenue, not in consensus"
+}
+</pre>
+
+<h4>Rejection Criteria</h4>
+<ul>
+  <li>Conviction &lt; 70 &rarr; <strong>REJECT</strong></li>
+  <li>Conviction &lt; 90 AND sector in BEAR regime &rarr; <strong>REJECT</strong></li>
+  <li>Any risk flag = <code>earnings_in_24h</code> &rarr; <strong>DEFER</strong> (don't front-run earnings)</li>
+</ul>
+
+<h4>Pipeline B Variant: LLM Rapid Reflex (&lt;5 seconds)</h4>
+<p>When Pipeline B fires on an 8-K, the LLM prompt is shorter and more decisive:</p>
+<pre>
+"You are an event-driven trading algorithm. Read this 8-K.
+Does it contain a material positive surprise (FDA approval,
+major contract, buyout, guidance raise)?
+Answer: YES or NO, conviction 0-100, one-sentence reason."
+</pre>
+<p>Response time: ~3 seconds. If YES + conviction &gt;90, proceed directly to execution via Portfolio Manager.</p>
+
+<!-- ════════════════════════════════════════════════════ -->
+<h2>6. Tier 4 &mdash; Fusion &amp; Execution</h2>
+
+<div class="metric-row">
+  <div class="metric-card"><div class="label">Input</div><div class="value cyan">20&ndash;30</div></div>
+  <div class="metric-card"><div class="label">Output</div><div class="value green">5&ndash;12 positions</div></div>
+  <div class="metric-card"><div class="label">Cost</div><div class="value green">$0</div></div>
+  <div class="metric-card"><div class="label">Speed</div><div class="value green">Instant</div></div>
+</div>
+
+<h3>6a. Cross-Sectional Fusion Model (Pipeline A only)</h3>
+
+<p><span class="tier-label tier-4">TIER 4</span> uses a cross-sectional XGBoost trained on ALL tickers simultaneously. This solves the data sparsity problem &mdash; individual micro-caps may have sparse history, but 4,000 tickers &times; 252 days = 1M+ training rows per year.</p>
+
+<h4>Feature Vector Per Ticker</h4>
+<table>
+  <tr><th>Source</th><th>Features</th></tr>
+  <tr><td>Tier 2 modules</td><td>insider_score, supply_chain_score, digital_footprint_score, event_flag, sector_regime</td></tr>
+  <tr><td>Tier 3 LLM</td><td>conviction, catalyst_type (one-hot), time_horizon</td></tr>
+  <tr><td>Price/Volume</td><td>RSI, momentum_5d, volume_ratio_20d, distance_from_SMA50, atr_pct</td></tr>
+  <tr><td>Metadata</td><td>market_cap_bucket, sector_id, days_since_IPO, float_pct</td></tr>
+</table>
+
+<p><strong>Target variable:</strong> 5-day forward return quintile (strong down / down / flat / up / strong up).</p>
+
+<h4>Cold Start Strategy (addresses chicken-and-egg problem)</h4>
+<table>
+  <tr><th>Stage</th><th>Period</th><th>Decision Model</th><th>Purpose</th></tr>
+  <tr><td>Stage 1</td><td>Months 1&ndash;2</td><td>Rule-based weighted composite (no ML)</td><td>Trade on rules, collect feature data</td></tr>
+  <tr><td>Stage 2</td><td>Months 3&ndash;4</td><td>XGBoost trained on accumulated data, <strong>shadow mode</strong></td><td>Validate ML beats rules before trusting it</td></tr>
+  <tr><td>Stage 3</td><td>Month 5+</td><td>XGBoost takes over <strong>only if it beats rules</strong></td><td>ML earns its seat</td></tr>
+</table>
+<p>This mirrors your DIAMOND CTM pattern (<code>CTM_ENABLED=false</code>) and CITRINE shadow tracker. You know this epistemology.</p>
+
+<h4>LLM Backtesting Reality</h4>
+<p>Tier 3 LLM scores are <strong>inherently forward-only</strong>. You cannot retroactively run Claude on historical 8-Ks and pretend it's point-in-time &mdash; the model's training data includes knowledge of what happened after those filings. The backtest covers Tiers 1&ndash;2 only. Tier 3 conviction enters the model as a feature only after the shadow period produces enough labeled data (60&ndash;90 days).</p>
+
+<h3>6b. Execution Rules</h3>
+
+<table>
+  <tr><th>Rule</th><th>Value</th><th>Rationale</th></tr>
+  <tr><td>Max positions</td><td>12</td><td>Diversified basket, never concentrated</td></tr>
+  <tr><td>Max per sector</td><td>3</td><td>Prevents sector blow-up</td></tr>
+  <tr><td>Order type</td><td><strong>LIMIT ONLY</strong></td><td>Never market orders on small caps &mdash; spread eats the edge</td></tr>
+  <tr><td>Fill timeout</td><td>15 minutes</td><td>Cancel if not filled &mdash; don't chase</td></tr>
+  <tr><td>Position size</td><td>base &times; (conviction/100) &times; liquidity_scalar</td><td>Conviction-weighted + liquidity-aware</td></tr>
+  <tr><td>Liquidity scalar</td><td>min(1.0, daily_volume / (50 &times; position_size))</td><td>Ensures order is &lt;2% of daily volume</td></tr>
+  <tr><td>Hard stop</td><td>-8% from entry</td><td>Wider than large-cap &mdash; small caps are volatile, tight stops get shaken out</td></tr>
+  <tr><td>Profit target</td><td>None</td><td>Let thesis play out; exit on regime flip, LLM re-score degradation, or time horizon expiry</td></tr>
+</table>
+
+<h4>Pipeline B Execution (Sniper Mode)</h4>
+<p>Pipeline B bypasses the cross-sectional ranker. When the LLM Rapid Reflex returns conviction &gt;90:</p>
+<ol>
+  <li>Check with Portfolio Manager: sector cap not breached? Total exposure not maxed?</li>
+  <li>Ping Polygon for current bid/ask spread &mdash; if spread &gt;1.5%, abort.</li>
+  <li>If stock hasn't already halted or gapped &gt;15%, execute aggressive limit order (mid + 0.25%).</li>
+  <li>Goal: fill within 15 seconds of 8-K publication. You are racing the rest of the market reading that document.</li>
+</ol>
+
+<!-- ════════════════════════════════════════════════════ -->
+<h2>7. Risk Management</h2>
+
+<p>Adapted from your existing kill-switch automation, with small-cap-specific adjustments.</p>
+
+<table>
+  <tr><th>Rule</th><th>Threshold</th><th>Action</th></tr>
+  <tr><td>Daily loss</td><td>&gt; 3% of account</td><td>Exit all positions, halt both pipelines for 24h</td></tr>
+  <tr><td>Rolling 20-trade Sharpe</td><td>&lt; 0.3</td><td>Halt new entries. Review. 3-cycle grace on restart.</td></tr>
+  <tr><td>Consecutive losses</td><td>0 wins in last 15 trades</td><td>Full halt. Strategy review required.</td></tr>
+  <tr><td>Single position loss</td><td>&gt; 8%</td><td>Hard stop exit (automatic)</td></tr>
+  <tr><td>Sector concentration</td><td>&gt; 3 positions same sector</td><td>Block new entries in that sector</td></tr>
+  <tr><td>Total exposure</td><td>&gt; 80% of capital deployed</td><td>Block new entries. Cash floor 20%.</td></tr>
+  <tr><td>Pipeline B daily cap</td><td>Max 3 sniper entries/day</td><td>Prevents overtrading on event noise</td></tr>
+</table>
+
+<!-- ════════════════════════════════════════════════════ -->
+<h2>8. Infrastructure &amp; Compute</h2>
+
+<h3>Compute Allocation</h3>
+
+<div class="pipeline-box pipeline-a">
+  <h4 style="margin-top:0">Mac &mdash; The Brain</h4>
+  <ul>
+    <li>Pipeline A daily batch (overnight: EOD download, Tier 1&ndash;2 scoring, Tier 3 LLM calls, fusion model)</li>
+    <li>Pipeline B event watcher (during market hours 9:30am&ndash;4pm ET)</li>
+    <li>Model training (Sunday retraining, same schedule as existing optimizers)</li>
+    <li>Backtesting and shadow mode evaluation</li>
+  </ul>
+</div>
+
+<div class="pipeline-box pipeline-b">
+  <h4 style="margin-top:0">Oracle VM (existing) &mdash; Execution Relay</h4>
+  <ul>
+    <li>Continues running BERYL + CITRINE (unchanged)</li>
+    <li>FLUORITE execution relay: receives trade signals from Mac, places orders</li>
+    <li><strong>Does NOT run Pipeline B</strong> &mdash; 1 OCPU / 1GB RAM already at ~500MB with existing services</li>
+  </ul>
+</div>
+
+<div class="pipeline-box shared">
+  <h4 style="margin-top:0">Optional: Second Oracle VM (free tier)</h4>
+  <ul>
+    <li>Oracle always-free tier includes a second 1-OCPU/1GB instance</li>
+    <li>Could run Pipeline B's lightweight RSS listener if Mac uptime is a concern</li>
+    <li>Zero incremental cost. Spin up only if Mac reliability becomes an issue.</li>
+  </ul>
+</div>
+
+<h3>Database Architecture</h3>
+
+<table>
+  <tr><th>Database</th><th>Location</th><th>Contents</th><th>Size Estimate</th></tr>
+  <tr><td><code>universe.db</code></td><td>Mac</td><td>Daily bars for ~4,000 tickers. Pruned to 90 days rolling.</td><td>~500MB</td></tr>
+  <tr><td><code>screening.db</code></td><td>Mac</td><td>Tier 1&ndash;2 daily scores (~1,500 rows/day). Pruned to 30 days.</td><td>~50MB</td></tr>
+  <tr><td><code>signals.db</code></td><td>Mac</td><td>Tier 3 LLM scores (50&ndash;80 rows/day). Kept for model training (1 year).</td><td>~20MB</td></tr>
+  <tr><td><code>events.db</code></td><td>Mac</td><td>Pipeline B event log: 8-K filings parsed, LLM Yes/No decisions, timestamps.</td><td>~10MB</td></tr>
+  <tr><td><code>fluorite_trades.db</code></td><td>Shared (rsync)</td><td>Execution ledger: trades, portfolio snapshots, P&amp;L. Same schema as BERYL/CITRINE.</td><td>~5MB</td></tr>
+</table>
+
+<h3>Integration with Existing Systems</h3>
+
+<table class="decision-table">
+  <tr><td>HMM Sector Regime</td><td>Read from BERYL/CITRINE output files. Don't re-run. Sector ETF regimes computed once by existing infrastructure.</td></tr>
+  <tr><td>Form 4 Pipeline</td><td>Extend <code>src/alternative_data.py</code> from 98 &rarr; 4,000 tickers. Same SEC EDGAR API, just wider scan.</td></tr>
+  <tr><td>Broker Module</td><td>Import <code>src/live_broker.py</code> from trading-core for equity execution (Alpaca or IBKR for small caps).</td></tr>
+  <tr><td>Notifier</td><td>Import <code>src/notifier.py</code> from trading-core for Pushover + macOS alerts.</td></tr>
+  <tr><td>Kill Switch</td><td>Import kill-switch pattern from CITRINE. Adapted thresholds for small-cap volatility.</td></tr>
+  <tr><td>Dashboard</td><td>New <code>fluorite_dashboard.py</code>, reusing Dash patterns from existing dashboards. Port :8075.</td></tr>
+</table>
+
+<!-- ════════════════════════════════════════════════════ -->
+<h2>9. Codebase Structure</h2>
+
+<pre>
+~/Documents/quant/fluorite/           # New standalone repo
+&boxvr;&boxh;&boxh; CLAUDE.md                        # Project-specific instructions
+&boxvr;&boxh;&boxh; fluorite_config.py                # Universe, thresholds, API keys
+&boxvr;&boxh;&boxh; pipeline_a.py                     # Daily batch orchestrator
+&boxvr;&boxh;&boxh; pipeline_b.py                     # Intraday event watcher
+&boxvr;&boxh;&boxh; fluorite_dashboard.py             # Dash dashboard at :8075
+&boxvr;&boxh;&boxh; src/
+&boxv;   &boxvr;&boxh;&boxh; universe_gate.py              # Tier 1: liquidity/market-cap filter
+&boxv;   &boxvr;&boxh;&boxh; insider_clusters.py           # Tier 2A: Form 4 cluster detection
+&boxv;   &boxvr;&boxh;&boxh; supply_chain_graph.py         # Tier 2B: JSON adjacency + ripple detector
+&boxv;   &boxvr;&boxh;&boxh; digital_footprint.py          # Tier 2C: Google Trends, app store, jobs
+&boxv;   &boxvr;&boxh;&boxh; event_tripwires.py            # Tier 2D: SEC RSS, volume spikes
+&boxv;   &boxvr;&boxh;&boxh; sector_regime.py              # Tier 2E: HMM regime reader (from BERYL/CITRINE)
+&boxv;   &boxvr;&boxh;&boxh; llm_scorer.py                 # Tier 3: Claude API document analysis
+&boxv;   &boxvr;&boxh;&boxh; fusion_model.py               # Tier 4: XGBoost cross-sectional ranker
+&boxv;   &boxvr;&boxh;&boxh; portfolio_manager.py          # Shared risk &amp; position management
+&boxv;   &boxvr;&boxh;&boxh; execution_engine.py           # Limit order execution + liquidity scalar
+&boxv;   &boxvr;&boxh;&boxh; fluorite_store.py             # SQLite storage (all 5 databases)
+&boxv;   &boxdr;&boxh;&boxh; composite_scorer.py           # Tier 2 weighted composite
+&boxvr;&boxh;&boxh; data/
+&boxv;   &boxvr;&boxh;&boxh; supply_chain_edges.json       # Apex &rarr; supplier adjacency list
+&boxv;   &boxdr;&boxh;&boxh; sector_map.json               # Ticker &rarr; GICS sector mapping
+&boxvr;&boxh;&boxh; reports/                          # Milestone HTML reports
+&boxdr;&boxh;&boxh; tests/                            # Test suite
+</pre>
+
+<p><strong>GitHub repo:</strong> <code>github.com/pjnks/fluorite-trader</code> (private). Auto-push via launchd plist (same pattern as existing repos).</p>
+
+<!-- ════════════════════════════════════════════════════ -->
+<h2>10. Build Phases</h2>
+
+<div class="phase-grid">
+  <div class="phase-num">Phase 0</div>
+  <div class="phase-desc"><strong>Universe Census</strong><br>Bulk EOD download for ~4,000 tickers. Run Tier 1 filters. Answer: "how many survive the liquidity gate?" This determines the real universe size and validates the Polygon data coverage for micro-caps.</div>
+  <div class="phase-weeks">Week 1</div>
+
+  <div class="phase-num">Phase 1</div>
+  <div class="phase-desc"><strong>Insider Clusters</strong><br>Extend Form 4 pipeline from 98 &rarr; full universe. Add 72-hour cluster detection (2+ insiders buying within 72h). Standalone screener alerts via Pushover. <em>You have 80% of this pipeline from BERYL.</em></div>
+  <div class="phase-weeks">Weeks 2&ndash;3</div>
+
+  <div class="phase-num">Phase 2</div>
+  <div class="phase-desc"><strong>Event Tripwires</strong><br>SEC EDGAR RSS listener + volume spike detector. Running on Mac during market hours. When tripwires fire, download 8-K text. No LLM yet &mdash; just flag and alert. Proves Pipeline B's trigger system works.</div>
+  <div class="phase-weeks">Weeks 3&ndash;4</div>
+
+  <div class="phase-num">Phase 3</div>
+  <div class="phase-desc"><strong>Rule-Based Scoring (Shadow Mode)</strong><br>Tier 2 weighted composite with no ML. Score all survivors. Log to <code>screening.db</code>. <strong>Paper trade on rules.</strong> Begins accumulating feature data for later XGBoost training. Cold start Stage 1.</div>
+  <div class="phase-weeks">Weeks 4&ndash;5</div>
+
+  <div class="phase-num">Phase 4</div>
+  <div class="phase-desc"><strong>LLM Sniper (Shadow Mode)</strong><br>Claude API scoring on Tier 2 survivors. Structured JSON output. Cost-capped at $X/day. Shadow mode &mdash; scores but doesn't trade. Proves LLM conviction correlates with forward returns before trusting it with capital.</div>
+  <div class="phase-weeks">Weeks 5&ndash;7</div>
+
+  <div class="phase-num">Phase 5</div>
+  <div class="phase-desc"><strong>Supply Chain Graph</strong><br>JSON adjacency list (~500 edges). Apex gap detector. Monitor NVDA/AAPL/MSFT/AMZN earnings for small-cap supplier ripple opportunities. Add as Tier 2B feature.</div>
+  <div class="phase-weeks">Weeks 7&ndash;8</div>
+
+  <div class="phase-num">Phase 6</div>
+  <div class="phase-desc"><strong>Digital Footprint</strong><br>Google Trends batch + app store rank delta. Daily feature table per ticker. Add as Tier 2C feature. Completes all five signal modules.</div>
+  <div class="phase-weeks">Weeks 8&ndash;9</div>
+
+  <div class="phase-num">Phase 7</div>
+  <div class="phase-desc"><strong>Fusion Model</strong><br>Train cross-sectional XGBoost on accumulated feature matrix + realized 5-day returns. <strong>Only deploys if it beats the rule-based composite on shadow data.</strong> If not, rules stay. Cold start Stage 2&rarr;3 gate.</div>
+  <div class="phase-weeks">Weeks 10&ndash;12</div>
+
+  <div class="phase-num">Phase 8</div>
+  <div class="phase-desc"><strong>Live Execution</strong><br>Limit-order execution layer with liquidity scalar. Basket rules, sector caps. Pipeline B override rule (B always beats A same-day). Pipeline B &rarr; Pipeline A feedback loop. <strong>Live trading begins (micro-capital).</strong></div>
+  <div class="phase-weeks">Weeks 12&ndash;14</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════ -->
+<h2>11. Identified Gaps &amp; Mitigations</h2>
+
+<p>Five practical gaps identified during architecture review. Each has a concrete fix.</p>
+
+<div class="gap-box">
+  <strong style="color:var(--neon-pink)">Gap 1: VM Can't Run Pipeline B</strong>
+  <p>Oracle VM is 1 OCPU / 1GB RAM, already at ~500MB with BERYL + CITRINE. Adding Pipeline B risks OOM-killing live services &mdash; you fought this war with DIAMOND (14 OOM kills, Sprint 12).</p>
+  <p class="fix">Fix: Run Pipeline B on Mac during market hours. VM stays as execution relay. Optional: spin up a second free-tier Oracle VM dedicated to Pipeline B.</p>
+</div>
+
+<div class="gap-box">
+  <strong style="color:var(--neon-pink)">Gap 2: No Backtest for LLM Signals</strong>
+  <p>Can't retroactively score historical 8-Ks with Claude &mdash; model training data includes future knowledge. LLM Tier 3 is inherently forward-only.</p>
+  <p class="fix">Fix: Backtest Tiers 1&ndash;2 only. Track Tier 3 in shadow mode for 60&ndash;90 days. XGBoost trains on Tier 1&ndash;2 features initially; Tier 3 conviction added only after shadow calibration. Same pattern as CITRINE shadow tracker.</p>
+</div>
+
+<div class="gap-box">
+  <strong style="color:var(--neon-pink)">Gap 3: Cold Start / Chicken-and-Egg</strong>
+  <p>Fusion model needs training data, but alt-data features don't exist historically. Can't train until you've been collecting for months.</p>
+  <p class="fix">Fix: Three-stage cold start (rule-based &rarr; shadow ML &rarr; ML takes over only if it beats rules). Same as DIAMOND's CTM_ENABLED=false pattern. See Tier 4 section.</p>
+</div>
+
+<div class="gap-box">
+  <strong style="color:var(--neon-pink)">Gap 4: Pipeline A/B Conflict Resolution</strong>
+  <p>Pipeline A says "ACME scored 45 last night" but Pipeline B says "ACME just filed an 8-K with a $40M contract win today." Which signal wins?</p>
+  <p class="fix">Fix: Pipeline B always overrides Pipeline A same-day. Fusion scoreboard has <code>last_updated</code> timestamp; B events overwrite with freshness bonus. Also: B positions feed back into A's next nightly scan (don't double-up).</p>
+</div>
+
+<div class="gap-box">
+  <strong style="color:var(--neon-pink)">Gap 5: Codebase Location</strong>
+  <p>FLUORITE is architecturally different (alt-data-driven, not HMM-driven) but shares infrastructure with trading-core.</p>
+  <p class="fix">Fix: New standalone repo <code>~/Documents/quant/fluorite/</code> with its own CLAUDE.md. Imports shared modules from trading-core for execution (broker, notifier, kill-switch). Daily batch and event watcher are FLUORITE-specific.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════ -->
+<h2>12. Monthly Cost Estimate</h2>
+
+<table>
+  <tr><th>Component</th><th>Monthly Cost</th><th>Notes</th></tr>
+  <tr><td>Polygon data (existing plan)</td><td>$0 incremental</td><td>Grouped daily endpoint covers all US equities</td></tr>
+  <tr><td>Claude API (Tier 3, 50&ndash;80 tickers/day)</td><td>$30&ndash;90</td><td>~$0.50&ndash;1.00 per ticker per LLM call</td></tr>
+  <tr><td>Google Trends API</td><td>Free</td><td>5 queries/min, ~300 tickers/day manageable</td></tr>
+  <tr><td>SEC EDGAR RSS + filings</td><td>Free</td><td>Public data, rate-limited to 10 req/sec</td></tr>
+  <tr><td>Reddit / social scraping</td><td>Free</td><td>Pushshift or custom scraper</td></tr>
+  <tr><td>Compute (Mac + existing VM)</td><td>$0 incremental</td><td>Mac is already on; VM handles existing services</td></tr>
+  <tr><td style="font-weight:bold; color:var(--neon-green)">Total incremental</td><td style="font-weight:bold; color:var(--neon-green)">$30&ndash;90/month</td><td></td></tr>
+</table>
+
+<!-- ════════════════════════════════════════════════════ -->
+<h2>13. What This Catches That HMM Alone Cannot</h2>
+
+<table>
+  <tr><th>Signal Type</th><th>HMM Stack (BERYL/CITRINE)</th><th>FLUORITE</th></tr>
+  <tr><td>Regime detection (BULL/BEAR/CHOP)</td><td style="color:var(--neon-green)">Yes &mdash; core strength</td><td>Consumed as sector filter (Tier 2E)</td></tr>
+  <tr><td>Earnings tone shift</td><td style="color:var(--neon-pink)">No</td><td style="color:var(--neon-green)">Yes (Tier 3 LLM)</td></tr>
+  <tr><td>8-K surprise filing</td><td style="color:var(--neon-pink)">No</td><td style="color:var(--neon-green)">Yes (Pipeline B, &lt;5s)</td></tr>
+  <tr><td>Insider cluster buying</td><td style="color:var(--neon-yellow)">Partial (single-insider boost)</td><td style="color:var(--neon-green)">Yes (72h multi-insider detection)</td></tr>
+  <tr><td>Supply chain ripples</td><td style="color:var(--neon-pink)">No</td><td style="color:var(--neon-green)">Yes (graph-based, 3&ndash;5 day window)</td></tr>
+  <tr><td>Consumer demand shifts</td><td style="color:var(--neon-pink)">No</td><td style="color:var(--neon-green)">Yes (Google Trends, app store)</td></tr>
+  <tr><td>Small/micro-cap coverage</td><td>98 NDX tickers</td><td style="color:var(--neon-green)">~4,000 (40&times; breadth)</td></tr>
+  <tr><td>Information asymmetry</td><td style="color:var(--neon-yellow)">Low (mega-caps heavily covered)</td><td style="color:var(--neon-green)">High (micro-cap filings unread)</td></tr>
+</table>
+
+<!-- ════════════════════════════════════════════════════ -->
+<h2>14. Decision Log</h2>
+
+<table>
+  <tr><th>Decision</th><th>Options Considered</th><th>Chosen</th><th>Rationale</th></tr>
+  <tr><td>Model architecture</td><td>TFT, XGBoost, RL agent</td><td>Cross-sectional XGBoost</td><td>TFT needs dense per-ticker data (micro-caps are sparse). XGBoost trained cross-sectionally on all tickers has 1M+ rows/year. RL is too hard to debug.</td></tr>
+  <tr><td>Pipeline B compute</td><td>Oracle VM, Mac, second VM</td><td>Mac (primary), second VM (optional)</td><td>Existing VM at 500/956MB. DIAMOND OOM history proves the risk. Mac has idle CPU during market hours.</td></tr>
+  <tr><td>Fusion layer</td><td>Shared ranker, shared risk manager</td><td>Shared Risk &amp; Portfolio Manager</td><td>Pipeline B can't wait for end-of-day ranking. Shared risk manager allows instant execution while maintaining position/sector limits.</td></tr>
+  <tr><td>Graph database</td><td>Neo4j, JSON adjacency list</td><td>JSON adjacency list</td><td>~500 edges. Neo4j is overkill until universe exceeds 1,000 mapped nodes.</td></tr>
+  <tr><td>LLM backtesting</td><td>Retroactive scoring, forward-only</td><td>Forward-only with shadow mode</td><td>Retroactive LLM scoring on historical 8-Ks is contaminated by future knowledge. Shadow mode for 60&ndash;90 days produces clean calibration data.</td></tr>
+  <tr><td>Project name</td><td>FLINT, FLUORITE</td><td>FLUORITE (F1)</td><td>Follows gemstone alphabetical convention from CLAUDE.md.</td></tr>
+  <tr><td>Cold start strategy</td><td>Wait for ML, rule-based first</td><td>Rule-based first, ML must earn its seat</td><td>Mirrors DIAMOND CTM and CITRINE shadow tracker. Proven epistemology.</td></tr>
+</table>
+
+<!-- ════════════════════════════════════════════════════ -->
+<h2>15. Kill Criteria &amp; Gates</h2>
+
+<table>
+  <tr><th>Gate</th><th>Condition</th><th>When</th></tr>
+  <tr><td>Phase 0 &rarr; 1</td><td>Tier 1 filter yields &ge;500 surviving tickers</td><td>End of Week 1</td></tr>
+  <tr><td>Phase 3 &rarr; 4</td><td>Rule-based shadow trades show &ge;55% hit rate on 5-day direction</td><td>End of Week 5</td></tr>
+  <tr><td>Phase 4 &rarr; 5</td><td>LLM conviction &gt;80 tickers have &ge;60% 5-day positive return rate</td><td>End of Week 7</td></tr>
+  <tr><td>Phase 7 gate</td><td>XGBoost shadow Sharpe &gt; rule-based Sharpe for &ge;30 consecutive days</td><td>End of Week 12</td></tr>
+  <tr><td>Phase 8 live gate</td><td>Paper trading Sharpe &gt; 0.5 over 4 weeks</td><td>End of Week 14</td></tr>
+  <tr><td style="color:var(--neon-pink)">KILL</td><td style="color:var(--neon-pink)">Paper Sharpe &lt; 0 after 8 weeks of live shadow data</td><td style="color:var(--neon-pink)">Week 13 review</td></tr>
+</table>
+
+<!-- ════════════════════════════════════════════════════ -->
+<h2>16. Next Actions</h2>
+
+<ol>
+  <li><strong>Phase 0 (this weekend):</strong> Bulk EOD download. Run Tier 1 liquidity filter. Report: how many of ~4,000 tickers survive? What's the sector distribution?</li>
+  <li><strong>Scaffold repo:</strong> Create <code>~/Documents/quant/fluorite/</code> with directory structure, CLAUDE.md, config file.</li>
+  <li><strong>Phase 1:</strong> Extend <code>src/alternative_data.py</code> insider cluster detection to full universe. Deploy standalone screener.</li>
+  <li><strong>Broker decision:</strong> BERYL/CITRINE use Polygon for data but execution is paper-mode. For FLUORITE small-cap live execution, evaluate Alpaca (free, good small-cap coverage, limit orders) vs IBKR (better fills, more complex API).</li>
+  <li><strong>Update hub CLAUDE.md:</strong> Add FLUORITE (F1) to the project navigation table with status "Phase 0 &mdash; Universe Census."</li>
+</ol>
+
+<!-- ════════════════════════════════════════════════════ -->
+
+<div class="footnote">
+  <p>Generated 2026-05-16. Synthesized from 4 independent architectural reviews (Claude, Perplexity &times;2, user synthesis). Grounded against existing HMM-Trader infrastructure (CLAUDE.md, 373 files, 5 active sub-projects). This document is the single canonical reference for FLUORITE architecture.</p>
+  <p>Follows the gemstone naming convention: AGATE, BERYL, CITRINE, DIAMOND, EMERALD, <strong>FLUORITE</strong>.</p>
+</div>
+
+</body>
+</html>
