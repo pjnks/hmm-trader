@@ -3,9 +3,9 @@
     "project": "AGATE",
     "status": "DISCREPANCIES_FOUND",
     "discrepancies": [
-      "REGIME MISMATCH: live=CHOP vs backtest=BEAR",
-      "SIGNAL MISMATCH: live=HOLD vs backtest=SELL",
-      "PRICE DRIFT: live=$70514.65 vs backtest=$86.52 (81401.0%)"
+      "CONFIDENCE DRIFT: live=0.973 vs backtest=0.461 (diff=0.512)",
+      "CONFIRMATION MISMATCH: live=5 vs backtest=3",
+      "PRICE DRIFT: live=$70514.65 vs backtest=$62.18 (113304.1%)"
     ],
     "live_signal": {
       "regime": "CHOP",
@@ -15,30 +15,19 @@
       "price": 70514.65
     },
     "backtest_signal": {
-      "regime": "BEAR",
-      "confidence": 0.9988513330318163,
-      "signal": "SELL",
-      "confirmations": 4,
-      "price": 86.52
+      "regime": "CHOP",
+      "confidence": 0.46096720115806755,
+      "signal": "HOLD",
+      "confirmations": 3,
+      "price": 62.18
     }
   },
   {
     "project": "BERYL",
-    "status": "OK",
+    "status": "NO_STATUS_FILE",
     "discrepancies": [],
-    "live_signal": {
-      "regime": "BULL",
-      "confidence": 0.9999052801143915,
-      "signal": "HOLD",
-      "confirmations": 4,
-      "price": 391.79
-    },
-    "backtest_signal": {
-      "regime": "BULL",
-      "confidence": 0.9977036986660884,
-      "confirmations": 8,
-      "price": 225.32
-    }
+    "live_signal": null,
+    "backtest_signal": null
   },
   {
     "project": "CITRINE",
