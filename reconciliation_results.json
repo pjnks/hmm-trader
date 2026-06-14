@@ -3,9 +3,8 @@
     "project": "AGATE",
     "status": "DISCREPANCIES_FOUND",
     "discrepancies": [
-      "CONFIDENCE DRIFT: live=0.973 vs backtest=0.461 (diff=0.512)",
-      "CONFIRMATION MISMATCH: live=5 vs backtest=3",
-      "PRICE DRIFT: live=$70514.65 vs backtest=$62.18 (113304.1%)"
+      "REGIME MISMATCH: live=CHOP vs backtest=BULL",
+      "PRICE DRIFT: live=$70514.65 vs backtest=$68.90 (102243.5%)"
     ],
     "live_signal": {
       "regime": "CHOP",
@@ -15,11 +14,11 @@
       "price": 70514.65
     },
     "backtest_signal": {
-      "regime": "CHOP",
-      "confidence": 0.46096720115806755,
+      "regime": "BULL",
+      "confidence": 0.9796416763820499,
       "signal": "HOLD",
-      "confirmations": 3,
-      "price": 62.18
+      "confirmations": 6,
+      "price": 68.9
     }
   },
   {
