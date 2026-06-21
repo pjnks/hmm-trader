@@ -4,7 +4,7 @@
     "status": "DISCREPANCIES_FOUND",
     "discrepancies": [
       "REGIME MISMATCH: live=CHOP vs backtest=BULL",
-      "PRICE DRIFT: live=$70514.65 vs backtest=$68.90 (102243.5%)"
+      "PRICE DRIFT: live=$70514.65 vs backtest=$73.17 (96271.0%)"
     ],
     "live_signal": {
       "regime": "CHOP",
@@ -15,10 +15,10 @@
     },
     "backtest_signal": {
       "regime": "BULL",
-      "confidence": 0.9796416763820499,
+      "confidence": 0.9445619865266481,
       "signal": "HOLD",
       "confirmations": 6,
-      "price": 68.9
+      "price": 73.17
     }
   },
   {
